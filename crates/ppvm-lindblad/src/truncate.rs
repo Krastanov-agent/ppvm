@@ -146,7 +146,7 @@ fn nth_largest(mags: &mut [f64], k: usize) -> f64 {
 }
 
 /// Descending comparison by magnitude, NaN-tolerant.
-fn desc_by_mag<T: Coeff>(a: T, b: T) -> std::cmp::Ordering {
+pub(crate) fn desc_by_mag<T: Coeff>(a: T, b: T) -> std::cmp::Ordering {
     b.mag()
         .partial_cmp(&a.mag())
         .unwrap_or(std::cmp::Ordering::Equal)

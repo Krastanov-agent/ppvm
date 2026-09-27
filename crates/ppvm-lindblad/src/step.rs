@@ -5,14 +5,18 @@
 
 use crate::sector::Sector;
 use crate::spec::LindbladSpec;
-use crate::truncate::{add_leakage_capped, cap_basis, prune_basis};
+use crate::truncate::{add_leakage_capped, cap_basis, desc_by_mag, prune_basis};
 use crate::word::Word;
-use crate::{Error, PcStepConfig, mf_expm};
+use crate::{Admission, Error, PcStepConfig, mf_expm};
 use num::Complex;
 use std::time::Instant;
 
-/// Per-phase timing breakdown (microseconds) returned by
-/// [`LindbladSpec::pc_step_timed`].
+/// Per-phase timing breakdown (microseconds) and admission counts
+/// returned by [`LindbladSpec::pc_step_timed`].
+///
+/// For [`Admission::SecondOrder`] the slots are `leakage1` = first-generation
+/// pass, `leakage2` = second-order pass, `expand1` = admission, `expm1` =
+/// the single exponential; `expand2`, `expm2` and `admitted2` stay 0.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct PcStepTimings {
     pub leakage1_us: u64,
@@ -21,6 +25,18 @@ pub struct PcStepTimings {
     pub leakage2_us: u64,
     pub expand2_us: u64,
     pub expm2_us: u64,
+    /// Strings admitted at the first (or only) enlargement.
+    pub admitted1: usize,
+    /// Strings admitted at the second enlargement (predictor-corrector).
+    pub admitted2: usize,
+    /// First-generation candidates left after the candidate-map cap of the
+    /// first leakage pass (all of them when the map is uncapped).
+    pub first_gen_candidates: usize,
+    /// Largest live candidate-map size reached during the step.
+    pub peak_candidates: usize,
+    /// Admitted strings that are not first-generation candidates
+    /// ([`Admission::SecondOrder`] only).
+    pub n_second_gen_admitted: usize,
 }
 
 impl PcStepTimings {
@@ -128,6 +144,9 @@ impl LindbladSpec {
         // None` admission is bounded by `max_basis` itself, `cap_basis` is
         // a no-op, and membership turnover requires `drop_tol > 0`.
         let admit = admit_basis.unwrap_or(max_basis).max(max_basis);
+        if cfg.admission == Admission::SecondOrder {
+            return self.second_order_step_inner(basis, coeffs, dt, protected, cfg, timed);
+        }
         let tau_add = tau_add.unwrap_or(0.0);
         let mut t = PcStepTimings::default();
 
@@ -136,11 +155,15 @@ impl LindbladSpec {
         // We rely on `coeffs` itself as the pre-step buffer for the corrector
         // — no `.clone()` is needed because `expm_step` only borrows it.
         let p = Phase::start(timed);
-        let leak = self.leakage_with_prune(basis, coeffs, protected, admit, tau_add)?;
+        let (leak, peak1) =
+            self.leakage_with_prune_stats(basis, coeffs, protected, admit, tau_add)?;
         p.stop(&mut t.leakage1_us);
+        t.first_gen_candidates = leak.len();
 
         let p = Phase::start(timed);
+        let n0 = basis.len();
         add_leakage_capped(basis, coeffs, leak, admit);
+        t.admitted1 = basis.len() - n0;
         p.stop(&mut t.expand1_us);
 
         // 2. Predictor: `expm_step` reads `coeffs` immutably and returns a
@@ -154,12 +177,16 @@ impl LindbladSpec {
         // any newly-added second-hop strings so it remains a valid input
         // (pre-step state) for the corrector.
         let p = Phase::start(timed);
-        let leak2 = self.leakage_with_prune(basis, &coeffs_predict, protected, admit, tau_add)?;
+        let (leak2, peak2) =
+            self.leakage_with_prune_stats(basis, &coeffs_predict, protected, admit, tau_add)?;
         p.stop(&mut t.leakage2_us);
         drop(coeffs_predict);
+        t.peak_candidates = peak1.max(peak2);
 
         let p = Phase::start(timed);
+        let n1 = basis.len();
         add_leakage_capped(basis, coeffs, leak2, admit);
+        t.admitted2 = basis.len() - n1;
         p.stop(&mut t.expand2_us);
 
         // 4. Corrector: redo from pre-step state on the doubly-enlarged basis.
@@ -170,6 +197,65 @@ impl LindbladSpec {
         // 5. Prune basis entries below `drop_tol` (protected words never dropped).
         prune_basis(basis, coeffs, drop_tol, protected);
         cap_basis(basis, coeffs, max_basis, protected);
+        Ok(t)
+    }
+
+    /// [`Admission::SecondOrder`] step: rank the first- and second-generation
+    /// strings by their second-order end-of-step weight, admit the largest
+    /// into the room `admit − basis.len()`, take one exponential, then
+    /// prune and rank-cap as [`Self::pc_step`] does.
+    fn second_order_step_inner(
+        &self,
+        basis: &mut Vec<Word>,
+        coeffs: &mut Vec<f64>,
+        dt: f64,
+        protected: &[Word],
+        cfg: &PcStepConfig,
+        timed: bool,
+    ) -> Result<PcStepTimings, Error> {
+        if cfg.tau_add.is_some() {
+            return Err(Error::InvalidConfig(
+                "tau_add is not supported with Admission::SecondOrder",
+            ));
+        }
+        let admit = cfg.admit_basis.unwrap_or(cfg.max_basis).max(cfg.max_basis);
+        let room = admit.saturating_sub(basis.len());
+        let cap = match cfg.candidate_slack {
+            None => None,
+            Some(s) if s >= 1.0 => Some((s * room as f64).ceil() as usize),
+            Some(_) => {
+                return Err(Error::InvalidConfig("candidate_slack must be >= 1"));
+            }
+        };
+        let mut t = PcStepTimings::default();
+
+        let so = self.second_order_candidates(basis, coeffs, protected, room, dt, cap)?;
+        if timed {
+            t.leakage1_us = so.pass1_us;
+            t.leakage2_us = so.pass2_us;
+        }
+        t.first_gen_candidates = so.n_first_gen;
+        t.peak_candidates = so.peak;
+
+        let p = Phase::start(timed);
+        let mut cands = so.cands;
+        if cands.len() > room {
+            cands.select_nth_unstable_by(room - 1, |a, b| desc_by_mag(a.1, b.1));
+            cands.truncate(room);
+        }
+        t.n_second_gen_admitted = cands.iter().filter(|c| c.2).count();
+        let n0 = basis.len();
+        let leak = cands.into_iter().map(|(w, v, _)| (w, v)).collect();
+        add_leakage_capped(basis, coeffs, leak, admit);
+        t.admitted1 = basis.len() - n0;
+        p.stop(&mut t.expand1_us);
+
+        let p = Phase::start(timed);
+        *coeffs = self.expm_step(basis, dt, coeffs, cfg.drop_tol);
+        p.stop(&mut t.expm1_us);
+
+        prune_basis(basis, coeffs, cfg.drop_tol, protected);
+        cap_basis(basis, coeffs, cfg.max_basis, protected);
         Ok(t)
     }
 
@@ -223,6 +309,11 @@ impl LindbladSpec {
         sector: Sector<'_>,
         cfg: &PcStepConfig,
     ) -> Result<(), Error> {
+        if cfg.admission == Admission::SecondOrder {
+            return Err(Error::InvalidConfig(
+                "Admission::SecondOrder is implemented for the real-space step only",
+            ));
+        }
         let PcStepConfig {
             max_basis,
             admit_basis,

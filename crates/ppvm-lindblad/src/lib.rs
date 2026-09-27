@@ -40,6 +40,7 @@ pub mod error;
 pub(crate) mod expm;
 mod kossakowski;
 mod scalar;
+mod second_order;
 pub mod sector;
 mod spec;
 mod step;
@@ -50,7 +51,7 @@ mod word;
 pub(crate) mod mf_expm;
 
 pub use basis::build_basis_index;
-pub use config::PcStepConfig;
+pub use config::{Admission, PcStepConfig};
 pub use error::Error;
 pub use sector::{Sector, canonicalize_basis_to_rep};
 pub use spec::{JumpInput, LindbladSpec};

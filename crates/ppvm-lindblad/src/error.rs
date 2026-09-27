@@ -45,6 +45,8 @@ pub enum Error {
         n: usize,
         m: usize,
     },
+    /// A `PcStepConfig` combination that the requested step does not support.
+    InvalidConfig(&'static str),
     Internal(String),
 }
 
@@ -87,6 +89,7 @@ impl fmt::Display for Error {
                 f,
                 "kossakowski K must be Hermitian; K[{n}][{m}] ≠ conj(K[{m}][{n}])"
             ),
+            Error::InvalidConfig(msg) => write!(f, "invalid step configuration: {msg}"),
             Error::Internal(msg) => write!(f, "internal error: {msg}"),
         }
     }

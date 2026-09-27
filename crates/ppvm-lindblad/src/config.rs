@@ -3,6 +3,24 @@
 
 //! Configuration objects for the predictor-corrector stepper.
 
+/// How a step enlarges the basis before the exponential.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Admission {
+    /// Admit the largest first-order leakage strings of the pre-step state,
+    /// take a predictor exponential, admit the largest leakage strings of
+    /// the predicted state into whatever room is left, and redo the
+    /// exponential from the pre-step state (corrector).
+    #[default]
+    PredictorCorrector,
+    /// Rank every string outside the basis within two applications of `L*`
+    /// by its end-of-step weight to second order,
+    /// `w_Q = dt·(L*x)_Q + ½dt²·(L*²x)_Q`, admit the largest into the room
+    /// in one go, and take a single exponential. First- and
+    /// second-generation strings compete for the same slots. Real-space
+    /// path only; `tau_add` must be `None`.
+    SecondOrder,
+}
+
 /// Truncation and execution policy for a single predictor-corrector step
 /// ([`crate::LindbladSpec::pc_step`], [`crate::LindbladSpec::pc_step_timed`]).
 ///
@@ -37,6 +55,14 @@ pub struct PcStepConfig {
     /// admission accuracy cliff sits at a fixed `tau_add`. `None` = no
     /// filter, the recommended default with cap-based truncation.
     pub tau_add: Option<f64>,
+    /// Basis enlargement rule; see [`Admission`].
+    pub admission: Admission,
+    /// Candidate-map bound for [`Admission::SecondOrder`]: after every
+    /// accumulation chunk the map is cut to the `ceil(slack·room)` largest
+    /// entries, as the first-order leakage does with `slack = 1`. `None`
+    /// keeps every candidate (exact ranking, unbounded memory). Ignored by
+    /// [`Admission::PredictorCorrector`].
+    pub candidate_slack: Option<f64>,
     /// When `Some(n)`, run the entire step inside a freshly built rayon
     /// thread pool of `n` threads (useful for benchmarking parallel
     /// scaling). When `None`, the global rayon pool is used.
@@ -53,6 +79,8 @@ impl Default for PcStepConfig {
             admit_basis: None,
             drop_tol: 0.0,
             tau_add: None,
+            admission: Admission::PredictorCorrector,
+            candidate_slack: None,
             num_threads: None,
         }
     }

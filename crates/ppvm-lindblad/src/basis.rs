@@ -14,7 +14,7 @@ use rayon::prelude::*;
 
 /// Chunk size for the leakage accumulation loops: candidates are folded
 /// into the live map (and the room-cap applied) once per chunk.
-const CHUNK_SIZE: usize = 4096;
+pub(crate) const CHUNK_SIZE: usize = 4096;
 
 /// Build a `word → row` map for a basis assumed to contain unique Pauli
 /// words; debug-asserts the uniqueness invariant.
@@ -62,6 +62,20 @@ impl LindbladSpec {
         max_basis: usize,
         tau_add: f64,
     ) -> Result<Vec<(Word, f64)>, Error> {
+        self.leakage_with_prune_stats(basis, coeffs, protected, max_basis, tau_add)
+            .map(|(leak, _)| leak)
+    }
+
+    /// [`Self::leakage_with_prune`] plus the peak size of the live
+    /// candidate map during accumulation.
+    pub(crate) fn leakage_with_prune_stats(
+        &self,
+        basis: &[Word],
+        coeffs: &[f64],
+        protected: &[Word],
+        max_basis: usize,
+        tau_add: f64,
+    ) -> Result<(Vec<(Word, f64)>, usize), Error> {
         if basis.len() != coeffs.len() {
             return Err(Error::LengthMismatch {
                 what: "basis and coeffs",
@@ -81,6 +95,7 @@ impl LindbladSpec {
         let room = max_basis.saturating_sub(basis.len());
         let n_qubits = self.n_qubits();
         let mut merged: FxHashMap<Word, f64> = FxHashMap::default();
+        let mut peak = 0usize;
         for chunk_indices in order.chunks(CHUNK_SIZE) {
             let local: Vec<Vec<(Word, f64)>> = chunk_indices
                 .par_iter()
@@ -115,15 +130,17 @@ impl LindbladSpec {
                     *merged.entry(k).or_insert(0.0) += val;
                 }
             }
+            peak = peak.max(merged.len());
             cap_map_to_room(&mut merged, room);
         }
         // Rate-based admission: keep only candidates whose leakage rate
         // exceeds `tau_add`. `tau_add = 0` admits everything except exact
         // zeros.
-        Ok(merged
+        let leak = merged
             .into_iter()
             .filter(|(_, c)| c.abs() > tau_add)
-            .collect())
+            .collect();
+        Ok((leak, peak))
     }
 
     /// Sparse generator matrix in COO form: returns `(row, col, val)`
