@@ -32,6 +32,17 @@ pub(crate) fn map_err(e: ppvm_lindblad::Error) -> PyErr {
 /// Reject a basis that contains the same Pauli word at two distinct rows.
 /// Duplicate rows would silently overwrite each other in the generator's
 /// row-index map and produce an incorrect sparse matrix.
+/// Parse the `admission` keyword of `pc_step` / `pc_step_timed`.
+fn parse_admission(s: &str) -> PyResult<ppvm_lindblad::Admission> {
+    match s {
+        "pc" => Ok(ppvm_lindblad::Admission::PredictorCorrector),
+        "second_order" => Ok(ppvm_lindblad::Admission::SecondOrder),
+        other => Err(PyValueError::new_err(format!(
+            "admission must be \"pc\" or \"second_order\"; got {other:?}"
+        ))),
+    }
+}
+
 fn assert_basis_unique(basis: &[Word]) -> PyResult<()> {
     let mut seen: HashMap<&Word, usize> = HashMap::with_capacity(basis.len());
     for (i, w) in basis.iter().enumerate() {
@@ -204,6 +215,13 @@ impl LindbladSpec {
     /// (displacement truncation). `drop_tol` prunes by magnitude after the
     /// step; `tau_add` filters leakage admission by inflow rate. Protected
     /// words are never dropped.
+    ///
+    /// `admission = "second_order"` replaces the predictor-corrector
+    /// enlargement by a single one that ranks first- and second-generation
+    /// strings jointly by `dt·(L*x)_Q + ½dt²·(L*²x)_Q`, followed by one
+    /// exponential; `candidate_slack` (>= 1) then bounds the candidate map
+    /// to `ceil(slack·room)` entries per chunk (`None` = exact). Requires
+    /// `tau_add = None`.
     #[pyo3(signature = (
         basis, coeffs, dt, max_basis,
         drop_tol = 0.0,
@@ -211,6 +229,8 @@ impl LindbladSpec {
         num_threads = None,
         admit_basis = None,
         tau_add = None,
+        admission = "pc",
+        candidate_slack = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn pc_step<'py>(
@@ -225,6 +245,8 @@ impl LindbladSpec {
         num_threads: Option<usize>,
         admit_basis: Option<usize>,
         tau_add: Option<f64>,
+        admission: &str,
+        candidate_slack: Option<f64>,
     ) -> PyResult<PyPauliMap<'py>> {
         let n_q = self.inner.n_qubits();
         let basis_view = basis.as_array();
@@ -248,6 +270,8 @@ impl LindbladSpec {
                     admit_basis,
                     drop_tol,
                     tau_add,
+                    admission: parse_admission(admission)?,
+                    candidate_slack,
                     num_threads,
                 },
             )
@@ -267,6 +291,8 @@ impl LindbladSpec {
         num_threads = None,
         admit_basis = None,
         tau_add = None,
+        admission = "pc",
+        candidate_slack = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn pc_step_timed<'py>(
@@ -281,6 +307,8 @@ impl LindbladSpec {
         num_threads: Option<usize>,
         admit_basis: Option<usize>,
         tau_add: Option<f64>,
+        admission: &str,
+        candidate_slack: Option<f64>,
     ) -> PyResult<(PyPauliMap<'py>, Bound<'py, pyo3::types::PyDict>)> {
         let n_q = self.inner.n_qubits();
         let basis_view = basis.as_array();
@@ -305,6 +333,8 @@ impl LindbladSpec {
                     admit_basis,
                     drop_tol,
                     tau_add,
+                    admission: parse_admission(admission)?,
+                    candidate_slack,
                     num_threads,
                 },
             )
@@ -319,6 +349,11 @@ impl LindbladSpec {
         d.set_item("leakage2_us", timings.leakage2_us)?;
         d.set_item("expand2_us", timings.expand2_us)?;
         d.set_item("expm2_us", timings.expm2_us)?;
+        d.set_item("admitted1", timings.admitted1)?;
+        d.set_item("admitted2", timings.admitted2)?;
+        d.set_item("first_gen_candidates", timings.first_gen_candidates)?;
+        d.set_item("peak_candidates", timings.peak_candidates)?;
+        d.set_item("n_second_gen_admitted", timings.n_second_gen_admitted)?;
         Ok((map, d))
     }
 
@@ -410,6 +445,7 @@ impl LindbladSpec {
                     drop_tol,
                     tau_add,
                     num_threads,
+                    ..Default::default()
                 },
             )
             .map_err(map_err)?;

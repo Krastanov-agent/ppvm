@@ -301,6 +301,8 @@ class Lindbladian:
         num_threads: int | None = None,
         admit_basis: int | None = None,
         tau_add: float | None = None,
+        admission: str = "pc",
+        candidate_slack: float | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """One predictor-corrector adaptive step.
 
@@ -335,13 +337,94 @@ class Lindbladian:
         turnover. With the default ``None``, admission is bounded by
         ``max_basis`` and turnover requires ``drop_tol > 0``.
 
+        ``admission`` selects how the basis is enlarged. ``"pc"`` (default)
+        is the predictor-corrector described above. ``"second_order"``
+        instead ranks every string outside the basis within two
+        applications of the Lindbladian by its end-of-step weight to second
+        order, ``dt·(L*x)_Q + ½dt²·(L*²x)_Q``, admits the largest into the
+        room in one enlargement and takes a single exponential; first- and
+        second-generation strings compete for the same slots. It requires
+        ``tau_add=None``. ``candidate_slack`` (>= 1) bounds its candidate
+        maps to ``ceil(slack·room)`` entries after every accumulation chunk,
+        as the first-order leakage does with slack 1; ``None`` keeps every
+        candidate (exact ranking).
+
         Returns ``(new_basis_arr, new_coeffs)``; the basis may have grown
         (or shrunk, if ``max_basis`` / ``drop_tol`` pruned entries).
         """
+        return self._pc_step_call(
+            "pc_step",
+            basis_arr,
+            coeffs,
+            dt,
+            max_basis,
+            drop_tol,
+            protected_arr,
+            num_threads,
+            admit_basis,
+            tau_add,
+            admission,
+            candidate_slack,
+        )
+
+    def pc_step_arr_timed(
+        self,
+        basis_arr: np.ndarray,
+        coeffs: np.ndarray,
+        dt: float,
+        max_basis: int,
+        drop_tol: float = 1e-12,
+        protected_arr: np.ndarray | None = None,
+        num_threads: int | None = None,
+        admit_basis: int | None = None,
+        tau_add: float | None = None,
+        admission: str = "pc",
+        candidate_slack: float | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
+        """`pc_step_arr` plus per-phase timings and admission counts.
+
+        Returns ``(new_basis_arr, new_coeffs, info)``. ``info`` holds the
+        phase wall times in microseconds (``leakage1_us`` … ``expm2_us``) and
+        the counts ``admitted1`` / ``admitted2`` (strings admitted at the
+        first / second enlargement), ``first_gen_candidates`` (first-order
+        candidates left after the candidate-map cap), ``peak_candidates``
+        (largest live candidate map) and ``n_second_gen_admitted``.
+        """
+        (basis, coeff), info = self._pc_step_call(
+            "pc_step_timed",
+            basis_arr,
+            coeffs,
+            dt,
+            max_basis,
+            drop_tol,
+            protected_arr,
+            num_threads,
+            admit_basis,
+            tau_add,
+            admission,
+            candidate_slack,
+        )
+        return basis, coeff, info
+
+    def _pc_step_call(
+        self,
+        method,
+        basis_arr,
+        coeffs,
+        dt,
+        max_basis,
+        drop_tol,
+        protected_arr,
+        num_threads,
+        admit_basis,
+        tau_add,
+        admission,
+        candidate_slack,
+    ):
         n = self.n_qubits
         if protected_arr is None:
             protected_arr = np.zeros((0, n), dtype=np.uint8)
-        return self._spec.pc_step(
+        return getattr(self._spec, method)(
             np.ascontiguousarray(basis_arr, dtype=np.uint8),
             np.ascontiguousarray(coeffs, dtype=np.float64),
             float(dt),
@@ -351,6 +434,8 @@ class Lindbladian:
             None if num_threads is None else int(num_threads),
             None if admit_basis is None else int(admit_basis),
             None if tau_add is None else float(tau_add),
+            str(admission),
+            None if candidate_slack is None else float(candidate_slack),
         )
 
     def pc_step_orbit_rep(
