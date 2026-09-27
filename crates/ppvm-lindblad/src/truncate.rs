@@ -115,6 +115,60 @@ pub(crate) fn add_leakage_capped<T: Coeff>(
     }
 }
 
+/// Second admission of [`crate::Admission::PcReplace`]. The strings
+/// `basis[n_kept..]` (admitted at the first enlargement, pre-step
+/// coefficient zero) are ranked by `|predicted|`, the new candidates `leak`
+/// by `½dt·|ℓ′|`, and the top `slots` of the union form the new tail of the
+/// working set; `coeffs` stays the zero-padded pre-step vector. Returns the
+/// number of new strings admitted.
+pub(crate) fn replace_admitted(
+    basis: &mut Vec<Word>,
+    coeffs: &mut Vec<f64>,
+    n_kept: usize,
+    predicted: &[f64],
+    leak: Vec<(Word, f64)>,
+    slots: usize,
+    dt: f64,
+) -> usize {
+    enum Src {
+        Old(usize),
+        New(Word),
+    }
+    let mut pool: Vec<(f64, Src)> = (n_kept..basis.len())
+        .map(|i| (predicted[i].abs(), Src::Old(i)))
+        .collect();
+    pool.extend(
+        leak.into_iter()
+            .map(|(w, l)| (0.5 * dt * l.abs(), Src::New(w))),
+    );
+    if pool.len() > slots {
+        if slots > 0 {
+            pool.select_nth_unstable_by(slots - 1, |a, b| {
+                b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        pool.truncate(slots);
+    }
+    let mut old: Vec<usize> = Vec::new();
+    let mut new: Vec<Word> = Vec::new();
+    for (_, src) in pool {
+        match src {
+            Src::Old(i) => old.push(i),
+            Src::New(w) => new.push(w),
+        }
+    }
+    old.sort_unstable();
+    let n_new = new.len();
+    let mut rebuilt: Vec<Word> = Vec::with_capacity(n_kept + old.len() + n_new);
+    rebuilt.extend_from_slice(&basis[..n_kept]);
+    rebuilt.extend(old.iter().map(|&i| basis[i]));
+    rebuilt.extend(new);
+    *basis = rebuilt;
+    coeffs.truncate(n_kept);
+    coeffs.resize(basis.len(), 0.0);
+    n_new
+}
+
 /// Keep the `basis`/`coeffs` entries satisfying `keep`, preserving order,
 /// by swapping survivors down and truncating.
 fn retain_in_place<T>(

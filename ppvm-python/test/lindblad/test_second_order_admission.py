@@ -164,3 +164,49 @@ def test_invalid_second_order_config(kw):
     else:
         with pytest.raises(Exception, match="invalid step configuration"):
             lind.pc_step_arr(*args, admission="second_order", **kw)
+
+
+def test_pc_replace_matches_dense_emulation():
+    """First admission top-room by |ℓ|; predictor on S ∪ F; the second
+    admission keeps the top-room of F by |x_pred| and the new candidates by
+    ½dt·|ℓ′|; corrector from the pre-step state on the result."""
+    rng = np.random.default_rng(5)
+    lind = _random_model(rng)
+    M = _dense_generator(lind)
+    dt = 0.3
+    basis = ["XZII", "IYXI", "ZIIY", "IIZX", "YIXI", "IXIZ"]
+    x = rng.normal(size=len(basis))
+    room = 10
+    S = [FULL_INDEX[s] for s in basis]
+    x_full = _full_vector(basis, x)
+
+    y = M @ x_full
+    cand = [i for i in range(len(FULL)) if i not in S and y[i] != 0.0]
+    F = sorted(cand, key=lambda i: -abs(y[i]))[:room]
+    W1 = S + F
+    x_pred = np.zeros(len(FULL))
+    x_pred[W1] = expm_mv_dense(dt * M[np.ix_(W1, W1)], x_full[W1])
+    lp = M @ x_pred
+    G = [i for i in range(len(FULL)) if i not in W1 and lp[i] != 0.0]
+    pool = [(abs(x_pred[i]), i) for i in F] + [(0.5 * dt * abs(lp[i]), i) for i in G]
+    top = [i for _, i in sorted(pool, key=lambda p: -p[0])[:room]]
+    n_new = sum(i in G for i in top)
+    assert 0 < n_new < room
+    W2 = S + top
+    x_corr = expm_mv_dense(dt * M[np.ix_(W2, W2)], x_full[W2])
+
+    A = len(basis) + room
+    b, c, info = lind.pc_step_arr_timed(
+        _basis_to_codes(basis, N),
+        x,
+        dt,
+        max_basis=A,
+        drop_tol=0.0,
+        admit_basis=A,
+        admission="pc_replace",
+    )
+    got = dict(zip(_to_strings(b), c))
+    assert set(got) == {FULL[i] for i in W2}
+    np.testing.assert_allclose([got[FULL[i]] for i in W2], x_corr, atol=1e-10)
+    assert info["admitted1"] == room
+    assert info["admitted2"] == n_new

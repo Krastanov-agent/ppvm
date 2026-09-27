@@ -347,7 +347,12 @@ class Lindbladian:
         ``tau_add=None``. ``candidate_slack`` (>= 1) bounds its candidate
         maps to ``ceil(slack·room)`` entries after every accumulation chunk,
         as the first-order leakage does with slack 1; ``None`` keeps every
-        candidate (exact ranking).
+        candidate (exact ranking). ``"pc_replace"`` keeps the
+        predictor-corrector but lets its second admission replace strings of
+        the first: the strings admitted at the first enlargement, ranked by
+        their predicted coefficient ``|x_pred|``, and the new leakage
+        candidates of the predicted state, ranked by ``½dt·|ℓ′|``, compete for
+        the ``admit_basis - len(basis)`` slots before the corrector.
 
         Returns ``(new_basis_arr, new_coeffs)``; the basis may have grown
         (or shrunk, if ``max_basis`` / ``drop_tol`` pruned entries).

@@ -37,8 +37,9 @@ fn parse_admission(s: &str) -> PyResult<ppvm_lindblad::Admission> {
     match s {
         "pc" => Ok(ppvm_lindblad::Admission::PredictorCorrector),
         "second_order" => Ok(ppvm_lindblad::Admission::SecondOrder),
+        "pc_replace" => Ok(ppvm_lindblad::Admission::PcReplace),
         other => Err(PyValueError::new_err(format!(
-            "admission must be \"pc\" or \"second_order\"; got {other:?}"
+            "admission must be \"pc\", \"second_order\" or \"pc_replace\"; got {other:?}"
         ))),
     }
 }
@@ -221,7 +222,10 @@ impl LindbladSpec {
     /// strings jointly by `dt·(L*x)_Q + ½dt²·(L*²x)_Q`, followed by one
     /// exponential; `candidate_slack` (>= 1) then bounds the candidate map
     /// to `ceil(slack·room)` entries per chunk (`None` = exact). Requires
-    /// `tau_add = None`.
+    /// `tau_add = None`. `admission = "pc_replace"` keeps the
+    /// predictor-corrector but lets its second admission replace strings of
+    /// the first: first-admission strings ranked by `|x_pred|` and the new
+    /// candidates by `½dt·|ℓ′|` compete for the `admit − |basis|` slots.
     #[pyo3(signature = (
         basis, coeffs, dt, max_basis,
         drop_tol = 0.0,

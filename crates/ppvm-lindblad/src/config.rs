@@ -19,6 +19,14 @@ pub enum Admission {
     /// second-generation strings compete for the same slots. Real-space
     /// path only; `tau_add` must be `None`.
     SecondOrder,
+    /// Predictor-corrector whose second admission may replace strings of
+    /// the first: the strings admitted at the first enlargement, ranked by
+    /// their predicted end-of-step coefficient `|x_pred,Q|`, and the new
+    /// leakage candidates of the predicted state, ranked by `½dt·|ℓ′_Q|`,
+    /// compete for the `admit − |basis before the step|` slots; the
+    /// corrector then runs on the reshuffled working set. Real-space path
+    /// only.
+    PcReplace,
 }
 
 /// Truncation and execution policy for a single predictor-corrector step

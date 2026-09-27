@@ -5,7 +5,7 @@
 
 use crate::sector::Sector;
 use crate::spec::LindbladSpec;
-use crate::truncate::{add_leakage_capped, cap_basis, desc_by_mag, prune_basis};
+use crate::truncate::{add_leakage_capped, cap_basis, desc_by_mag, prune_basis, replace_admitted};
 use crate::word::Word;
 use crate::{Admission, Error, PcStepConfig, mf_expm};
 use num::Complex;
@@ -27,7 +27,9 @@ pub struct PcStepTimings {
     pub expm2_us: u64,
     /// Strings admitted at the first (or only) enlargement.
     pub admitted1: usize,
-    /// Strings admitted at the second enlargement (predictor-corrector).
+    /// Strings admitted at the second enlargement (predictor-corrector); for
+    /// [`Admission::PcReplace`] the new strings that displaced first-admission
+    /// strings or filled leftover room.
     pub admitted2: usize,
     /// First-generation candidates left after the candidate-map cap of the
     /// first leakage pass (all of them when the map is uncapped).
@@ -176,18 +178,39 @@ impl LindbladSpec {
         // we no longer need `coeffs_predict`. Extend `coeffs` with zeros for
         // any newly-added second-hop strings so it remains a valid input
         // (pre-step state) for the corrector.
-        let p = Phase::start(timed);
-        let (leak2, peak2) =
-            self.leakage_with_prune_stats(basis, &coeffs_predict, protected, admit, tau_add)?;
-        p.stop(&mut t.leakage2_us);
-        drop(coeffs_predict);
-        t.peak_candidates = peak1.max(peak2);
+        if cfg.admission == Admission::PcReplace {
+            // Second admission competes with the first for all
+            // `admit − n0` slots instead of filling the free room.
+            let slots = admit.saturating_sub(n0);
+            let p = Phase::start(timed);
+            let (leak2, peak2) = self.leakage_with_prune_stats(
+                basis,
+                &coeffs_predict,
+                protected,
+                basis.len() + slots,
+                tau_add,
+            )?;
+            p.stop(&mut t.leakage2_us);
+            t.peak_candidates = peak1.max(peak2);
 
-        let p = Phase::start(timed);
-        let n1 = basis.len();
-        add_leakage_capped(basis, coeffs, leak2, admit);
-        t.admitted2 = basis.len() - n1;
-        p.stop(&mut t.expand2_us);
+            let p = Phase::start(timed);
+            t.admitted2 = replace_admitted(basis, coeffs, n0, &coeffs_predict, leak2, slots, dt);
+            p.stop(&mut t.expand2_us);
+            drop(coeffs_predict);
+        } else {
+            let p = Phase::start(timed);
+            let (leak2, peak2) =
+                self.leakage_with_prune_stats(basis, &coeffs_predict, protected, admit, tau_add)?;
+            p.stop(&mut t.leakage2_us);
+            drop(coeffs_predict);
+            t.peak_candidates = peak1.max(peak2);
+
+            let p = Phase::start(timed);
+            let n1 = basis.len();
+            add_leakage_capped(basis, coeffs, leak2, admit);
+            t.admitted2 = basis.len() - n1;
+            p.stop(&mut t.expand2_us);
+        }
 
         // 4. Corrector: redo from pre-step state on the doubly-enlarged basis.
         let p = Phase::start(timed);
@@ -309,9 +332,9 @@ impl LindbladSpec {
         sector: Sector<'_>,
         cfg: &PcStepConfig,
     ) -> Result<(), Error> {
-        if cfg.admission == Admission::SecondOrder {
+        if cfg.admission != Admission::PredictorCorrector {
             return Err(Error::InvalidConfig(
-                "Admission::SecondOrder is implemented for the real-space step only",
+                "only Admission::PredictorCorrector is implemented for the orbit-rep step",
             ));
         }
         let PcStepConfig {
