@@ -353,6 +353,9 @@ class Lindbladian:
         their predicted coefficient ``|x_pred|``, and the new leakage
         candidates of the predicted state, ranked by ``½dt·|ℓ′|``, compete for
         the ``admit_basis - len(basis)`` slots before the corrector.
+        ``"single"`` drops the predictor, second admission and corrector:
+        one enlargement by the largest first-order leakage strings, then one
+        exponential.
 
         Returns ``(new_basis_arr, new_coeffs)``; the basis may have grown
         (or shrunk, if ``max_basis`` / ``drop_tol`` pruned entries).

@@ -210,3 +210,23 @@ def test_pc_replace_matches_dense_emulation():
     np.testing.assert_allclose([got[FULL[i]] for i in W2], x_corr, atol=1e-10)
     assert info["admitted1"] == room
     assert info["admitted2"] == n_new
+
+
+def test_single_matches_pc_when_first_admission_fills_working_set():
+    """With more first-order candidates than room, the second admission of the
+    predictor-corrector admits nothing and its corrector repeats the
+    predictor, so the single enlargement gives the identical step."""
+    rng = np.random.default_rng(9)
+    lind = _random_model(rng)
+    basis = ["XZII", "IYXI", "ZIIY", "IIZX", "YIXI", "IXIZ"]
+    x = rng.normal(size=len(basis))
+    codes = _basis_to_codes(basis, N)
+    n_cand = len(lind.leakage_arr(codes, x)[1])
+    room = 5
+    assert n_cand > room
+    kw = dict(dt=0.2, max_basis=8, drop_tol=0.0, admit_basis=len(basis) + room)
+    b_pc, c_pc, info = lind.pc_step_arr_timed(codes, x, **kw)
+    b_s, c_s = lind.pc_step_arr(codes, x, admission="single", **kw)
+    assert info["admitted2"] == 0
+    assert np.array_equal(b_pc, b_s)
+    assert np.array_equal(c_pc, c_s)

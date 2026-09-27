@@ -38,8 +38,9 @@ fn parse_admission(s: &str) -> PyResult<ppvm_lindblad::Admission> {
         "pc" => Ok(ppvm_lindblad::Admission::PredictorCorrector),
         "second_order" => Ok(ppvm_lindblad::Admission::SecondOrder),
         "pc_replace" => Ok(ppvm_lindblad::Admission::PcReplace),
+        "single" => Ok(ppvm_lindblad::Admission::Single),
         other => Err(PyValueError::new_err(format!(
-            "admission must be \"pc\", \"second_order\" or \"pc_replace\"; got {other:?}"
+            "admission must be \"pc\", \"second_order\", \"pc_replace\" or \"single\"; got {other:?}"
         ))),
     }
 }
@@ -226,6 +227,8 @@ impl LindbladSpec {
     /// predictor-corrector but lets its second admission replace strings of
     /// the first: first-admission strings ranked by `|x_pred|` and the new
     /// candidates by `½dt·|ℓ′|` compete for the `admit − |basis|` slots.
+    /// `admission = "single"` drops predictor, second admission and
+    /// corrector: one first-order enlargement, one exponential.
     #[pyo3(signature = (
         basis, coeffs, dt, max_basis,
         drop_tol = 0.0,

@@ -27,6 +27,12 @@ pub enum Admission {
     /// corrector then runs on the reshuffled working set. Real-space path
     /// only.
     PcReplace,
+    /// A single enlargement by the largest first-order leakage strings of
+    /// the pre-step state, then one exponential: the predictor-corrector
+    /// without predictor, second admission and corrector. Under a binding
+    /// rank cap it coincides with [`Admission::PredictorCorrector`] once the
+    /// first admission fills the working set. Real-space path only.
+    Single,
 }
 
 /// Truncation and execution policy for a single predictor-corrector step

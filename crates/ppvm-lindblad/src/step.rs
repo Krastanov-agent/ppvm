@@ -168,6 +168,16 @@ impl LindbladSpec {
         t.admitted1 = basis.len() - n0;
         p.stop(&mut t.expand1_us);
 
+        if cfg.admission == Admission::Single {
+            t.peak_candidates = peak1;
+            let p = Phase::start(timed);
+            *coeffs = self.expm_step(basis, dt, coeffs, drop_tol);
+            p.stop(&mut t.expm1_us);
+            prune_basis(basis, coeffs, drop_tol, protected);
+            cap_basis(basis, coeffs, max_basis, protected);
+            return Ok(t);
+        }
+
         // 2. Predictor: `expm_step` reads `coeffs` immutably and returns a
         // new owned vector with the predicted state.
         let p = Phase::start(timed);
