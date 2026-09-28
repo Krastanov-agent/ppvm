@@ -56,9 +56,11 @@ where
     #[inline]
     fn accumulate_batch(&mut self, terms: &TermBatch<K, C>) {
         for (k, c) in terms.iter() {
-            self.entry(k.clone())
-                .and_modify(|e| *e += c.clone())
-                .or_insert_with(|| c.clone());
+            if let Some(value) = self.get_mut(k) {
+                *value += c;
+            } else {
+                self.insert(k.clone(), c.clone());
+            }
         }
     }
 
@@ -77,7 +79,7 @@ where
     #[inline]
     fn scale(&mut self, s: &C) {
         for v in self.values_mut() {
-            *v *= s.clone();
+            *v *= s;
         }
     }
 }
@@ -102,11 +104,23 @@ where
     fn overlap(&self, other: &Self) -> C {
         if self.len() <= other.len() {
             HashMap::iter(self)
-                .filter_map(|(k, a)| HashMap::get(other, k).map(|b| a.clone() * b.clone()))
+                .filter_map(|(k, a)| {
+                    HashMap::get(other, k).map(|b| {
+                        let mut product = a.clone();
+                        product *= b;
+                        product
+                    })
+                })
                 .sum()
         } else {
             HashMap::iter(other)
-                .filter_map(|(k, b)| HashMap::get(self, k).map(|a| a.clone() * b.clone()))
+                .filter_map(|(k, b)| {
+                    HashMap::get(self, k).map(|a| {
+                        let mut product = a.clone();
+                        product *= b;
+                        product
+                    })
+                })
                 .sum()
         }
     }
@@ -120,11 +134,23 @@ where
     {
         if self.len() <= other.len() {
             HashMap::iter(self)
-                .filter_map(|(k, a)| HashMap::get(other, k).map(|b| a.conj() * b.clone()))
+                .filter_map(|(k, a)| {
+                    HashMap::get(other, k).map(|b| {
+                        let mut product = a.conj();
+                        product *= b;
+                        product
+                    })
+                })
                 .sum()
         } else {
             HashMap::iter(other)
-                .filter_map(|(k, b)| HashMap::get(self, k).map(|a| a.conj() * b.clone()))
+                .filter_map(|(k, b)| {
+                    HashMap::get(self, k).map(|a| {
+                        let mut product = a.conj();
+                        product *= b;
+                        product
+                    })
+                })
                 .sum()
         }
     }
@@ -154,11 +180,18 @@ where
         for (p, a) in HashMap::iter(self) {
             for (q, b) in HashMap::iter(other) {
                 let (k, phase) = p.key_mul(q);
-                let c = phase.apply(&(a.clone() * b.clone()));
+                let mut product = a.clone();
+                product *= b;
+                let c = phase.apply(&product);
                 // Precompute the product key digest before probing to move hash computation
                 // off the bucket-index critical path; the digest value is unchanged.
                 let _ = k.key_hash();
-                acc.entry(k).and_modify(|e| *e += c.clone()).or_insert(c);
+                match acc.entry(k) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => *entry.get_mut() += c,
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(c);
+                    }
+                }
             }
         }
     }
@@ -184,6 +217,40 @@ mod tests {
         fn key_hash(&self) -> u64 {
             self.0.wrapping_mul(0x9E37_79B9_7F4A_7C15)
         }
+    }
+
+    #[test]
+    fn borrowed_arithmetic_matches_vector_backend() {
+        use crate::TermSink;
+        use num::Complex;
+
+        let mut terms = TermBatch::new();
+        terms.push(Key(1), Complex::new(1.0, 2.0));
+        terms.push(Key(1), Complex::new(2.0, -1.0));
+        terms.push(Key(2), Complex::new(-1.0, 3.0));
+        let mut map = HashMap::<Key, Complex<f64>, IdentityBuildHasher>::default();
+        let mut vector = Vec::<(Key, Complex<f64>)>::new();
+        map.accumulate_batch(&terms);
+        vector.accumulate_batch(&terms);
+        let scalar = Complex::new(2.0, -1.0);
+        map.scale(&scalar);
+        vector.scale(&scalar);
+        assert_eq!(Support::get(&map, &Key(1)), Some(Complex::new(7.0, -1.0)));
+
+        let other_vector = vec![(Key(1), Complex::new(1.0, 1.0))];
+        let other_map = other_vector.as_slice().iter().copied().collect();
+        assert_eq!(map.overlap(&other_map), Complex::new(8.0, 6.0));
+        assert_eq!(map.hermitian_overlap(&other_map), Complex::new(6.0, 8.0));
+        assert_eq!(map.overlap(&other_map), vector.overlap(&other_vector));
+        assert_eq!(other_map.overlap(&map), other_vector.overlap(&vector));
+        assert_eq!(
+            map.hermitian_overlap(&other_map),
+            vector.hermitian_overlap(&other_vector)
+        );
+        assert_eq!(
+            other_map.hermitian_overlap(&map),
+            other_vector.hermitian_overlap(&vector)
+        );
     }
 
     #[test]

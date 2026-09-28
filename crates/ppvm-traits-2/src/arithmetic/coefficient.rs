@@ -32,7 +32,9 @@ pub trait Coefficient:
     /// native multiply-by-two operation; exact rings retain the additive default.
     #[inline(always)]
     fn doubled(&self) -> Self {
-        self.clone() + self.clone()
+        let mut result = self.clone();
+        result += self;
+        result
     }
 
     /// Nonnegative magnitude. Exposes a property of the value for a `Policy` to

@@ -11,11 +11,10 @@ pub trait PauliErrorFactors: Coefficient + num::One {
     #[inline(always)]
     fn pauli_error_factors(probabilities: [Self; 3]) -> [Self; 3] {
         let [px, py, pz] = probabilities;
-        let one = Self::one();
         [
-            one.clone() - py.doubled() - pz.doubled(),
-            one.clone() - px.doubled() - py.doubled(),
-            one - px.doubled() - pz.doubled(),
+            Self::one() - py.doubled() - pz.doubled(),
+            Self::one() - px.doubled() - py.doubled(),
+            Self::one() - px.doubled() - pz.doubled(),
         ]
     }
 }
@@ -55,20 +54,17 @@ pub trait PauliError<C: Coefficient> {
 
     /// stim `X_ERROR(p)` — apply `X` with probability `p` to one qubit.
     fn x_error<R: rand::Rng + ?Sized>(&mut self, qubit: usize, p: C, rng: &mut R) {
-        let zero = C::zero();
-        self.pauli_error(qubit, [p, zero.clone(), zero], rng)
+        self.pauli_error(qubit, [p, C::zero(), C::zero()], rng)
     }
 
     /// stim `Y_ERROR(p)` — apply `Y` with probability `p` to one qubit.
     fn y_error<R: rand::Rng + ?Sized>(&mut self, qubit: usize, p: C, rng: &mut R) {
-        let zero = C::zero();
-        self.pauli_error(qubit, [zero.clone(), p, zero], rng)
+        self.pauli_error(qubit, [C::zero(), p, C::zero()], rng)
     }
 
     /// stim `Z_ERROR(p)` — apply `Z` with probability `p` to one qubit.
     fn z_error<R: rand::Rng + ?Sized>(&mut self, qubit: usize, p: C, rng: &mut R) {
-        let zero = C::zero();
-        self.pauli_error(qubit, [zero.clone(), zero, p], rng)
+        self.pauli_error(qubit, [C::zero(), C::zero(), p], rng)
     }
 
     /// Explicit batched Pauli-error channel.

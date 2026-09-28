@@ -57,7 +57,7 @@ where
     fn accumulate_batch(&mut self, terms: &TermBatch<K, C>) {
         for (k, c) in terms.iter() {
             if let Some(slot) = self.iter_mut().find(|(ek, _)| ek == k) {
-                slot.1 += c.clone();
+                slot.1 += c;
             } else {
                 self.push((k.clone(), c.clone()));
             }
@@ -80,7 +80,7 @@ where
     #[inline]
     fn scale(&mut self, s: &C) {
         for (_, v) in self.iter_mut() {
-            *v *= s.clone();
+            *v *= s;
         }
     }
 }
@@ -102,7 +102,17 @@ where
     fn overlap(&self, other: &Self) -> C {
         self.as_slice()
             .iter()
-            .filter_map(|(k, a)| Support::get(other, k).map(|b| a.clone() * b))
+            .filter_map(|(k, a)| {
+                other
+                    .as_slice()
+                    .iter()
+                    .find(|(key, _)| key == k)
+                    .map(|(_, b)| {
+                        let mut product = a.clone();
+                        product *= b;
+                        product
+                    })
+            })
             .sum()
     }
 
@@ -113,7 +123,17 @@ where
     {
         self.as_slice()
             .iter()
-            .filter_map(|(k, a)| Support::get(other, k).map(|b| a.conj() * b))
+            .filter_map(|(k, a)| {
+                other
+                    .as_slice()
+                    .iter()
+                    .find(|(key, _)| key == k)
+                    .map(|(_, b)| {
+                        let mut product = a.conj();
+                        product *= b;
+                        product
+                    })
+            })
             .sum()
     }
 }
@@ -142,7 +162,9 @@ where
         for (p, a) in self.as_slice() {
             for (q, b) in other.as_slice() {
                 let (k, phase) = p.key_mul(q);
-                let c = phase.apply(&(a.clone() * b.clone()));
+                let mut product = a.clone();
+                product *= b;
+                let c = phase.apply(&product);
                 if let Some(slot) = acc.iter_mut().find(|(ek, _)| *ek == k) {
                     slot.1 += c;
                 } else {
