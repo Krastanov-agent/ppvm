@@ -4,6 +4,9 @@
 import enum
 from collections.abc import Iterable
 from dataclasses import InitVar, dataclass, field
+from typing import Literal, overload
+
+import numpy as np
 
 from . import _core
 from ._core import StimProgram
@@ -160,10 +163,11 @@ class GeneralizedTableau(
 
         Applies CZ to ``(control_base + i, target_base + i)`` for ``i`` in
         ``range(count)`` -- i.e. the gates ``zip(range(control_base, ...),
-        range(target_base, ...))`` would produce. This uses a word-level kernel
-        that is much faster than the equivalent `cz` call when the pairs form a
-        contiguous, constant-offset block (e.g. entangling two adjacent qubit
-        registers). For scattered pairs, use `cz`.
+        range(target_base, ...))`` would produce. Disjoint constant-offset
+        blocks use a word-level kernel that is much faster than the equivalent
+        `cz` call (e.g. entangling two adjacent qubit registers). Overlapping
+        / brickwork pairs such as ``cz_block(0, 1, n)`` are still correct: they
+        fall back to the per-pair loop. For scattered pairs, use `cz`.
 
         CZ is symmetric, so ``control_base`` and ``target_base`` may be given in
         either order.
@@ -376,6 +380,43 @@ class GeneralizedTableau(
     # stim familiarity alias
     do = run
 
+    @overload
+    @classmethod
+    def sample(
+        cls,
+        prog: StimProgram,
+        n_qubits: int | None = ...,
+        min_abs_coeff: float = ...,
+        num_shots: int = ...,
+        seed: int | None = ...,
+        as_numpy: Literal[False] = ...,
+    ) -> list[list[MeasurementResult]]: ...
+
+    @overload
+    @classmethod
+    def sample(
+        cls,
+        prog: StimProgram,
+        n_qubits: int | None = ...,
+        min_abs_coeff: float = ...,
+        num_shots: int = ...,
+        seed: int | None = ...,
+        *,
+        as_numpy: Literal[True],
+    ) -> np.ndarray: ...
+
+    @overload
+    @classmethod
+    def sample(
+        cls,
+        prog: StimProgram,
+        n_qubits: int | None = ...,
+        min_abs_coeff: float = ...,
+        num_shots: int = ...,
+        seed: int | None = ...,
+        as_numpy: bool = ...,
+    ) -> list[list[MeasurementResult]] | np.ndarray: ...
+
     @classmethod
     def sample(
         cls,
@@ -384,7 +425,8 @@ class GeneralizedTableau(
         min_abs_coeff: float = 1e-10,
         num_shots: int = 1,
         seed: int | None = None,
-    ) -> list[list[MeasurementResult]]:
+        as_numpy: bool = False,
+    ) -> list[list[MeasurementResult]] | np.ndarray:
         """Run ``num_shots`` shots of ``prog`` and return all measurement results.
 
         Each shot starts from a fresh tableau, so this is the right entry
@@ -402,12 +444,53 @@ class GeneralizedTableau(
         reproducible and independent of the number of threads. Set the
         ``RAYON_NUM_THREADS`` environment variable before the first call to
         control the pool size (it defaults to the number of logical cores).
+
+        With ``as_numpy=True`` the results come back as a writable ``int8``
+        array of shape ``(num_shots, n_measurements)`` holding the
+        `MeasurementResult` values (0/1/2 = zero/one/lost), which avoids
+        building one Python object per measurement.
         """
         if n_qubits is None:
             n_qubits = max(1, prog.num_qubits)
         native_cls = _native_tableau_cls(n_qubits)
-        raw = native_cls.sample(prog, n_qubits, min_abs_coeff, num_shots, seed)
-        return [[_BY_VALUE[x] for x in shot] for shot in raw]
+        buf, (n, m) = native_cls.sample(prog, n_qubits, min_abs_coeff, num_shots, seed)
+        if as_numpy:
+            return np.frombuffer(buf, dtype=np.int8).reshape(n, m)
+        return [[_BY_VALUE[x] for x in buf[i * m : (i + 1) * m]] for i in range(n)]
+
+
+@overload
+def sample_stim(
+    prog: StimProgram,
+    n_qubits: int | None = ...,
+    min_abs_coeff: float = ...,
+    num_shots: int = ...,
+    seed: int | None = ...,
+    as_numpy: Literal[False] = ...,
+) -> list[list[MeasurementResult]]: ...
+
+
+@overload
+def sample_stim(
+    prog: StimProgram,
+    n_qubits: int | None = ...,
+    min_abs_coeff: float = ...,
+    num_shots: int = ...,
+    seed: int | None = ...,
+    *,
+    as_numpy: Literal[True],
+) -> np.ndarray: ...
+
+
+@overload
+def sample_stim(
+    prog: StimProgram,
+    n_qubits: int | None = ...,
+    min_abs_coeff: float = ...,
+    num_shots: int = ...,
+    seed: int | None = ...,
+    as_numpy: bool = ...,
+) -> list[list[MeasurementResult]] | np.ndarray: ...
 
 
 def sample_stim(
@@ -416,14 +499,20 @@ def sample_stim(
     min_abs_coeff: float = 1e-10,
     num_shots: int = 1,
     seed: int | None = None,
-) -> list[list[MeasurementResult]]:
+    as_numpy: bool = False,
+) -> list[list[MeasurementResult]] | np.ndarray:
     """Multi-shot sampling — module-level alias for ``GeneralizedTableau.sample``.
 
     When ``n_qubits`` is ``None`` (the default) the qubit count is inferred from
     the program; see `GeneralizedTableau.sample`. Shots are sampled in parallel
     across CPU cores with the GIL released; see `GeneralizedTableau.sample` for
-    seeding and ``RAYON_NUM_THREADS``.
+    seeding, ``RAYON_NUM_THREADS`` and the ``as_numpy`` array format.
     """
     return GeneralizedTableau.sample(
-        prog, n_qubits, min_abs_coeff=min_abs_coeff, num_shots=num_shots, seed=seed
+        prog,
+        n_qubits,
+        min_abs_coeff=min_abs_coeff,
+        num_shots=num_shots,
+        seed=seed,
+        as_numpy=as_numpy,
     )
