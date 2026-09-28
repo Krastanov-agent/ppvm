@@ -3,7 +3,6 @@
 
 /// A single-qubit Pauli symbol — the site alphabet of an ordinary packed Pauli
 /// word (`Word<Site = Pauli>`).
-///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pauli {
     /// Identity `I`.

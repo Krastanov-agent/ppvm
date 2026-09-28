@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The PPVM Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//! Noise-channel capabilities. `rng` is threaded through each call rather than
+//! owned by the state: trajectory backends draw from it, deterministic ones
+//! ignore it, and the caller owns seeding and stream sharing.
+
 use crate::arithmetic::Coefficient;
 
 /// Optional coefficient capability for single-qubit Pauli-channel factors.
@@ -19,28 +23,11 @@ pub trait PauliErrorFactors: Coefficient + num::One {
     }
 }
 
-impl PauliErrorFactors for f64 {
-    #[inline(always)]
-    fn pauli_error_factors([px, py, pz]: [Self; 3]) -> [Self; 3] {
-        [
-            1.0 - py * 2.0 - pz * 2.0,
-            1.0 - px * 2.0 - py * 2.0,
-            1.0 - px * 2.0 - pz * 2.0,
-        ]
-    }
-}
+// Both numeric types already specialize `Coefficient::doubled` to `*self * 2.0`,
+// so the generic default inlines to exactly the hand-written expression.
+impl PauliErrorFactors for f64 {}
 
-impl PauliErrorFactors for num::Complex<f64> {
-    #[inline(always)]
-    fn pauli_error_factors([px, py, pz]: [Self; 3]) -> [Self; 3] {
-        let one = Self::new(1.0, 0.0);
-        [
-            one - py * 2.0 - pz * 2.0,
-            one - px * 2.0 - py * 2.0,
-            one - px * 2.0 - pz * 2.0,
-        ]
-    }
-}
+impl PauliErrorFactors for num::Complex<f64> {}
 
 /// A unital single-qubit Pauli error channel `P ↦ λ_P·P`.
 pub trait PauliError<C: Coefficient> {
@@ -99,13 +86,6 @@ pub trait PauliError<C: Coefficient> {
             self.z_error(q, p.clone(), rng);
         }
     }
-}
-
-/// Apply the same single-qubit Pauli error channel uniformly to every qubit in
-/// the system.
-pub trait PauliErrorAll<C: Coefficient> {
-    /// Apply the Pauli channel `p = [p_x, p_y, p_z]` to every qubit.
-    fn pauli_error_all<R: rand::Rng + ?Sized>(&mut self, p: [C; 3], rng: &mut R);
 }
 
 /// Two-qubit Pauli error channel.
@@ -184,11 +164,12 @@ pub trait LossChannel<C: Coefficient> {
     fn loss_channel<R: rand::Rng + ?Sized>(&mut self, qubit: usize, p: C, rng: &mut R);
 }
 
-/// Correlated two-qubit loss channel.
+/// Correlated two-qubit loss channel. Completely positive exactly on
+/// `p[0], p[1] >= 0`, `p[0] + 2·p[1] <= 1`, `p[2] ∈ [0, 1]`.
 pub trait CorrelatedLossChannel<C: Coefficient> {
-    /// Apply correlated loss: `p[0]` loses both qubits when both are present;
-    /// `p[1]` loses either one when both are present; `p[2]` loses the remaining
-    /// qubit when the other was already lost.
+    /// Apply correlated loss `p = [p_LL, p_LQ, p_LN]`: `p[0]` loses both, `p[2]`
+    /// the survivor of an earlier loss. `p[1]` loses a **named** one, so exactly
+    /// one goes with probability `2·p[1]` and both remain with `1−2·p[1]−p[0]`.
     fn correlated_loss_channel<R: rand::Rng + ?Sized>(
         &mut self,
         qubit0: usize,

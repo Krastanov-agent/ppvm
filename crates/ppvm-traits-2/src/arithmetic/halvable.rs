@@ -7,7 +7,9 @@ use crate::arithmetic::Coefficient;
 /// capability the projective computational-basis measurement kernel needs to
 /// apply the `(I ± Z)/2` projectors.
 pub trait Halvable: Coefficient {
-    /// Divide by two. Impls must be exact: `x.half() + x.half() == x`.
+    /// Divide by two. Impls must be exact: `x.half() + x.half() == x` for every
+    /// finite `x` (`f64::NAN` and the infinities are exempt — they are not
+    /// ring elements).
     fn half(&self) -> Self;
 }
 

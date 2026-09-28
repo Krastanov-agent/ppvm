@@ -5,12 +5,13 @@
 //! [`Indexable`] keys supply structural digests consumed by the pass-through hasher.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
-use crate::algebra::{Conjugate, ImaginaryUnit, KeyProduct};
+use crate::algebra::{ImaginaryUnit, KeyProduct};
 use crate::arithmetic::Coefficient;
-use crate::containers::{Accumulate, Multiply, Pair, Retain, Scale, Support};
-use crate::containers::{IdentityBuildHasher, Indexable};
-use crate::containers::{KeyBatch, TermBatch};
+use crate::containers::{
+    Accumulate, IdentityBuildHasher, Indexable, Multiply, Pair, Retain, Scale, Support, TermBatch,
+};
 
 impl<K, C> Support for HashMap<K, C, IdentityBuildHasher>
 where
@@ -84,76 +85,14 @@ where
     }
 }
 
+/// Takes every [`Pair`] default: the shared scan already drives from the
+/// smaller support and probes through [`Support::get`], which is a hash lookup
+/// here.
 impl<K, C> Pair for HashMap<K, C, IdentityBuildHasher>
 where
     K: Indexable,
     C: Coefficient,
 {
-    #[inline]
-    fn probe_batch(&self, keys: &KeyBatch<K>, out: &mut [Option<C>]) {
-        debug_assert!(out.len() >= keys.keys().len());
-        for (slot, k) in out.iter_mut().zip(keys.keys().iter()) {
-            *slot = HashMap::get(self, k).cloned();
-        }
-    }
-
-    /// Compute `Σ_k self[k]·other[k]` by scanning the smaller support and probing the other.
-    /// The traversal costs `O(min(|self|, |other|))` expected hash lookups.
-    /// Changing traversal direction may change floating-point summation order.
-    #[inline]
-    fn overlap(&self, other: &Self) -> C {
-        if self.len() <= other.len() {
-            HashMap::iter(self)
-                .filter_map(|(k, a)| {
-                    HashMap::get(other, k).map(|b| {
-                        let mut product = a.clone();
-                        product *= b;
-                        product
-                    })
-                })
-                .sum()
-        } else {
-            HashMap::iter(other)
-                .filter_map(|(k, b)| {
-                    HashMap::get(self, k).map(|a| {
-                        let mut product = a.clone();
-                        product *= b;
-                        product
-                    })
-                })
-                .sum()
-        }
-    }
-
-    /// `Σ_k conj(self[k])·other[k]`, driven from the smaller support — see
-    /// [`Pair::overlap`] for why the direction is free to differ.
-    #[inline]
-    fn hermitian_overlap(&self, other: &Self) -> C
-    where
-        C: Conjugate,
-    {
-        if self.len() <= other.len() {
-            HashMap::iter(self)
-                .filter_map(|(k, a)| {
-                    HashMap::get(other, k).map(|b| {
-                        let mut product = a.conj();
-                        product *= b;
-                        product
-                    })
-                })
-                .sum()
-        } else {
-            HashMap::iter(other)
-                .filter_map(|(k, b)| {
-                    HashMap::get(self, k).map(|a| {
-                        let mut product = a.conj();
-                        product *= b;
-                        product
-                    })
-                })
-                .sum()
-        }
-    }
 }
 
 impl<K, C> Retain<K, C> for HashMap<K, C, IdentityBuildHasher>
@@ -183,13 +122,10 @@ where
                 let mut product = a.clone();
                 product *= b;
                 let c = phase.apply(&product);
-                // Precompute the product key digest before probing to move hash computation
-                // off the bucket-index critical path; the digest value is unchanged.
-                let _ = k.key_hash();
                 match acc.entry(k) {
-                    std::collections::hash_map::Entry::Occupied(mut entry) => *entry.get_mut() += c,
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(c);
+                    Entry::Occupied(mut slot) => *slot.get_mut() += c,
+                    Entry::Vacant(slot) => {
+                        slot.insert(c);
                     }
                 }
             }

@@ -20,7 +20,9 @@ pub trait Word {
     fn iter(&self) -> impl Iterator<Item = Self::Site>;
 }
 
-// Mutable single-vector X/Z access — a point of `GF(2)^{2n}`.
+/// Mutable single-vector X/Z access — a point of `GF(2)^{2n}`. Composite
+/// defaults compose the four scalar accessors; a packed backend may override
+/// any of them to refresh metadata once per call instead of once per bit.
 pub trait PauliBits: Word {
     /// Read the X bit at index `i`.
     fn x_bit(&self, i: usize) -> bool;
@@ -35,28 +37,24 @@ pub trait PauliBits: Word {
     fn set_z_bit(&mut self, i: usize, v: bool);
 
     /// Set both bit planes at one site.
-    /// Packed implementations may override the scalar default to refresh metadata once.
     #[inline(always)]
     fn set_xz_bits(&mut self, i: usize, x: bool, z: bool) {
         self.set_x_bit(i, x);
         self.set_z_bit(i, z);
     }
     /// Set both bit planes at two sites.
-    /// Packed implementations may override the default to refresh metadata once.
     #[inline(always)]
     fn set_xz_bits2(&mut self, i: usize, xi: bool, zi: bool, j: usize, xj: bool, zj: bool) {
         self.set_xz_bits(i, xi, zi);
         self.set_xz_bits(j, xj, zj);
     }
     /// Set one X bit and one Z bit together, as required by CNOT.
-    /// Overrides can refresh metadata once without touching unchanged companion bits.
     #[inline(always)]
     fn set_x_bit_and_z_bit(&mut self, x_i: usize, x: bool, z_i: usize, z: bool) {
         self.set_x_bit(x_i, x);
         self.set_z_bit(z_i, z);
     }
     /// Set two Z bits together, as required by CZ, leaving X bits unchanged.
-    /// Overrides can refresh metadata once; the default composes scalar setters.
     #[inline(always)]
     fn set_z_bit_pair(&mut self, i: usize, zi: bool, j: usize, zj: bool) {
         self.set_z_bit(i, zi);
@@ -70,57 +68,46 @@ pub trait PauliBits: Word {
     }
 
     /// Copy this word and toggle selected X/Z bits at one site.
-    /// The default clones then flips; packed implementations may build the branch key
-    /// directly and compute its structural digest once.
+    #[inline]
     fn toggled_bits(&self, i: usize, toggle_x: bool, toggle_z: bool) -> Self
     where
         Self: Sized + Clone,
     {
-        let mut out = self.clone();
-        if toggle_x {
-            let b = out.x_bit(i);
-            out.set_x_bit(i, !b);
-        }
-        if toggle_z {
-            let b = out.z_bit(i);
-            out.set_z_bit(i, !b);
-        }
-        out
+        self.clone().into_toggled_bits(i, [toggle_x, toggle_z])
     }
 
     /// Copy this word once and toggle selected X/Z bits at two sites.
     /// Each mask is `[toggle_x, toggle_z]`; only one copy is made.
-    /// Packed implementations may compute the structural digest once.
     #[inline]
     fn toggled_bits2(&self, i: usize, toggle_i: [bool; 2], j: usize, toggle_j: [bool; 2]) -> Self
     where
         Self: Sized + Clone,
     {
-        let mut out = self.clone();
-        if toggle_i[0] {
-            let b = out.x_bit(i);
-            out.set_x_bit(i, !b);
+        self.clone().into_toggled_bits2(i, toggle_i, j, toggle_j)
+    }
+
+    /// Consume this word and toggle the bits selected by `[toggle_x, toggle_z]`
+    /// at one site. The in-place primitive every variant above is built from.
+    #[inline]
+    fn into_toggled_bits(mut self, i: usize, toggle: [bool; 2]) -> Self
+    where
+        Self: Sized,
+    {
+        if toggle[0] {
+            let x = self.x_bit(i);
+            self.set_x_bit(i, !x);
         }
-        if toggle_i[1] {
-            let b = out.z_bit(i);
-            out.set_z_bit(i, !b);
+        if toggle[1] {
+            let z = self.z_bit(i);
+            self.set_z_bit(i, !z);
         }
-        if toggle_j[0] {
-            let b = out.x_bit(j);
-            out.set_x_bit(j, !b);
-        }
-        if toggle_j[1] {
-            let b = out.z_bit(j);
-            out.set_z_bit(j, !b);
-        }
-        out
+        self
     }
 
     /// Consume this word and toggle two sites using `[toggle_x, toggle_z]` masks.
-    /// Packed implementations may defer metadata refresh until all writes complete.
     #[inline]
     fn into_toggled_bits2(
-        mut self,
+        self,
         i: usize,
         toggle_i: [bool; 2],
         j: usize,
@@ -129,23 +116,8 @@ pub trait PauliBits: Word {
     where
         Self: Sized,
     {
-        if toggle_i[0] {
-            let b = self.x_bit(i);
-            self.set_x_bit(i, !b);
-        }
-        if toggle_i[1] {
-            let b = self.z_bit(i);
-            self.set_z_bit(i, !b);
-        }
-        if toggle_j[0] {
-            let b = self.x_bit(j);
-            self.set_x_bit(j, !b);
-        }
-        if toggle_j[1] {
-            let b = self.z_bit(j);
-            self.set_z_bit(j, !b);
-        }
-        self
+        self.into_toggled_bits(i, toggle_i)
+            .into_toggled_bits(j, toggle_j)
     }
 
     /// Whether this word anticommutes with `pauli = (x_bit, z_bit)` at site `i`.

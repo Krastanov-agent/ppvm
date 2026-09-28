@@ -12,8 +12,9 @@ pub trait Columnar: Indexable {
     type Column: KeyColumn<Key = Self>;
 }
 
-/// Read access and value-producing operations on a structure-of-arrays key column.
-/// See [`KeyColumnMut`] for construction and mutation.
+/// Read and value-producing operations on a structure-of-arrays key column,
+/// generic over the key type. Pauli/loss row accessors live in [`PauliColumn`]
+/// and [`LossColumn`]; construction and mutation in [`KeyColumnMut`].
 pub trait KeyColumn: Default + Clone {
     /// The key type this column stores.
     type Key: Columnar;
@@ -44,42 +45,30 @@ pub trait KeyColumn: Default + Clone {
     /// Scalar materialization of one element — a naive backend's fallback,
     /// never the hot path.
     fn get(&self, i: usize) -> Self::Key;
+}
 
-    /// Read one row's X bit without requiring scalar materialization when the
-    /// concrete column can address its packed plane directly.
+/// Row-level Pauli bit access for columns whose keys implement [`PauliBits`].
+/// Defaults materialize the row via [`KeyColumn::get`]; packed columns override
+/// them to address bit planes directly, which is why there is no blanket impl.
+pub trait PauliColumn: KeyColumn
+where
+    Self::Key: PauliBits,
+{
+    /// Read one row's X bit.
     #[inline]
-    fn x_bit(&self, row: usize, qubit: usize) -> bool
-    where
-        Self::Key: PauliBits,
-    {
+    fn x_bit(&self, row: usize, qubit: usize) -> bool {
         self.get(row).x_bit(qubit)
     }
 
-    /// Read one row's Z bit directly when supported.
+    /// Read one row's Z bit.
     #[inline]
-    fn z_bit(&self, row: usize, qubit: usize) -> bool
-    where
-        Self::Key: PauliBits,
-    {
+    fn z_bit(&self, row: usize, qubit: usize) -> bool {
         self.get(row).z_bit(qubit)
     }
 
-    /// Read one row's loss bit directly when supported.
+    /// Materialize one row while toggling selected bits at one site.
     #[inline]
-    fn is_lost(&self, row: usize, qubit: usize) -> bool
-    where
-        Self::Key: LossState,
-    {
-        self.get(row).is_lost(qubit)
-    }
-
-    /// Materialize one row while toggling selected bits. Packed columns can
-    /// build the branch key directly from their planes.
-    #[inline]
-    fn toggled_bits(&self, row: usize, qubit: usize, toggle_x: bool, toggle_z: bool) -> Self::Key
-    where
-        Self::Key: PauliBits,
-    {
+    fn toggled_bits(&self, row: usize, qubit: usize, toggle_x: bool, toggle_z: bool) -> Self::Key {
         self.get(row).toggled_bits(qubit, toggle_x, toggle_z)
     }
 
@@ -92,11 +81,22 @@ pub trait KeyColumn: Default + Clone {
         toggle_i: [bool; 2],
         j: usize,
         toggle_j: [bool; 2],
-    ) -> Self::Key
-    where
-        Self::Key: PauliBits,
-    {
+    ) -> Self::Key {
         self.get(row).toggled_bits2(i, toggle_i, j, toggle_j)
+    }
+}
+
+/// Row-level loss access for columns whose keys implement [`LossState`].
+/// Defaults materialize the row; packed columns override. No blanket impl, for
+/// the same reason as [`PauliColumn`].
+pub trait LossColumn: KeyColumn
+where
+    Self::Key: LossState,
+{
+    /// Read one row's loss bit.
+    #[inline]
+    fn is_lost(&self, row: usize, qubit: usize) -> bool {
+        self.get(row).is_lost(qubit)
     }
 }
 

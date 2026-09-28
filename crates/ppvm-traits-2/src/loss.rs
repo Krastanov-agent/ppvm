@@ -1,22 +1,22 @@
 // SPDX-FileCopyrightText: 2026 The PPVM Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Loss state associated with word sites
+/// Loss state associated with word sites.
 pub trait LossState {
-    // Whether site i is lost. LossyPauliWord overrides this
+    /// Whether site `i` is lost. Lossy words override this.
     fn is_lost(&self, _i: usize) -> bool {
         false
     }
 
-    // Number of lost sites
+    /// Number of lost sites.
     fn loss_weight(&self) -> usize {
         0
     }
 
-    // Mark index `i` lost
+    /// Mark index `i` lost.
     fn set_lost(&mut self, i: usize);
 
-    // Clear the loss flag at index `i`, returning the site to identity.
+    /// Clear the loss flag at index `i`, returning the site to identity.
     fn clear_lost(&mut self, i: usize);
 
     /// A copy of this word with the loss flag at `i` cleared.

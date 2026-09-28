@@ -4,10 +4,9 @@
 //! An unsorted `Vec<(K, C)>` backend using linear scans and `K: Eq + Clone`.
 //! Suitable for small supports; no hashing is required.
 
-use crate::algebra::{Conjugate, ImaginaryUnit, KeyProduct};
+use crate::algebra::{ImaginaryUnit, KeyProduct};
 use crate::arithmetic::Coefficient;
-use crate::containers::{Accumulate, Multiply, Pair, Retain, Scale, Support};
-use crate::containers::{KeyBatch, TermBatch};
+use crate::containers::{Accumulate, Multiply, Pair, Retain, Scale, Support, TermBatch};
 
 impl<K, C> Support for Vec<(K, C)>
 where
@@ -85,57 +84,14 @@ where
     }
 }
 
+/// Takes every [`Pair`] default. Each probe is a linear [`Support::get`] scan,
+/// so pairing costs `O(|self|·|other|)` — fine for the small supports this
+/// backend targets.
 impl<K, C> Pair for Vec<(K, C)>
 where
     K: Eq + Clone,
     C: Coefficient,
 {
-    #[inline]
-    fn probe_batch(&self, keys: &KeyBatch<K>, out: &mut [Option<C>]) {
-        debug_assert!(out.len() >= keys.keys().len());
-        for (slot, k) in out.iter_mut().zip(keys.keys().iter()) {
-            *slot = Support::get(self, k);
-        }
-    }
-
-    #[inline]
-    fn overlap(&self, other: &Self) -> C {
-        self.as_slice()
-            .iter()
-            .filter_map(|(k, a)| {
-                other
-                    .as_slice()
-                    .iter()
-                    .find(|(key, _)| key == k)
-                    .map(|(_, b)| {
-                        let mut product = a.clone();
-                        product *= b;
-                        product
-                    })
-            })
-            .sum()
-    }
-
-    #[inline]
-    fn hermitian_overlap(&self, other: &Self) -> C
-    where
-        C: Conjugate,
-    {
-        self.as_slice()
-            .iter()
-            .filter_map(|(k, a)| {
-                other
-                    .as_slice()
-                    .iter()
-                    .find(|(key, _)| key == k)
-                    .map(|(_, b)| {
-                        let mut product = a.conj();
-                        product *= b;
-                        product
-                    })
-            })
-            .sum()
-    }
 }
 
 impl<K, C> Retain<K, C> for Vec<(K, C)>

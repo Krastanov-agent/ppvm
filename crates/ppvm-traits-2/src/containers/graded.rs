@@ -5,6 +5,8 @@
 //! Keys require `Eq + Clone`; hashing and Pauli capabilities are backend-specific.
 //! [`Retain`] is separate because truncation can break algebraic exactness.
 
+use num::Zero;
+
 use crate::algebra::{Conjugate, ImaginaryUnit, KeyProduct};
 use crate::arithmetic::Coefficient;
 use crate::containers::{KeyBatch, TermBatch, TermSink};
@@ -74,15 +76,61 @@ pub trait Scale: Support {
 pub trait Pair: Support {
     /// Read-only probe of a key column: `out[i]` is the coefficient at
     /// `keys[i]`, or `None` on a miss.
-    fn probe_batch(&self, keys: &KeyBatch<Self::Key>, out: &mut [Option<Self::Coeff>]);
+    fn probe_batch(&self, keys: &KeyBatch<Self::Key>, out: &mut [Option<Self::Coeff>]) {
+        debug_assert!(out.len() >= keys.keys().len());
+        for (slot, k) in out.iter_mut().zip(keys.keys().iter()) {
+            *slot = self.get(k);
+        }
+    }
 
     /// The symmetric bilinear trace pairing `∑_k a_k b_k`.
-    fn overlap(&self, other: &Self) -> Self::Coeff;
+    fn overlap(&self, other: &Self) -> Self::Coeff {
+        fold_common(self, other, |a, b| {
+            let mut product = a.clone();
+            product *= b;
+            product
+        })
+    }
 
-    /// The sesquilinear inner product `∑_k conj(a_k)·b_k`.
+    /// The sesquilinear inner product `∑_k conj(a_k)·b_k`, conjugating `self`.
     fn hermitian_overlap(&self, other: &Self) -> Self::Coeff
     where
-        Self::Coeff: Conjugate;
+        Self::Coeff: Conjugate,
+    {
+        fold_common(self, other, |a, b| {
+            let mut product = a.conj();
+            product *= b;
+            product
+        })
+    }
+}
+
+/// Sum `combine` over keys present in both supports, scanning the smaller side
+/// (`O(min(|lhs|, |rhs|))` probes, so summation order varies with the sizes).
+/// `combine` always receives `(lhs coeff, rhs coeff)`, whichever side scanned.
+fn fold_common<S>(
+    lhs: &S,
+    rhs: &S,
+    mut combine: impl FnMut(&S::Coeff, &S::Coeff) -> S::Coeff,
+) -> S::Coeff
+where
+    S: Support + ?Sized,
+{
+    let mut acc = S::Coeff::zero();
+    if lhs.len() <= rhs.len() {
+        lhs.for_each_ref(|k, a| {
+            if let Some(b) = rhs.get(k) {
+                acc += combine(a, &b);
+            }
+        });
+    } else {
+        rhs.for_each_ref(|k, b| {
+            if let Some(a) = lhs.get(k) {
+                acc += combine(&a, b);
+            }
+        });
+    }
+    acc
 }
 
 /// Accumulate a ring product using [`KeyProduct`] and [`ImaginaryUnit`].
