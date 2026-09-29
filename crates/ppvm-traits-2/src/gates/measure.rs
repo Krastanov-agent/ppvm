@@ -9,64 +9,60 @@ use super::Clifford;
 ///
 pub trait Measure {
     /// Measure `qubit`; `None` if the qubit has been lost.
-    fn measure<R: rand::Rng + ?Sized>(&mut self, qubit: usize, rng: &mut R) -> Option<bool>;
+    fn measure(&mut self, qubit: usize) -> Option<bool>;
 
     /// Measure each target in order, one result per target.
-    fn measure_many<R: rand::Rng + ?Sized>(
-        &mut self,
-        targets: &[usize],
-        rng: &mut R,
-    ) -> Vec<Option<bool>> {
-        targets.iter().map(|&q| self.measure(q, rng)).collect()
+    fn measure_many(&mut self, targets: &[usize]) -> Vec<Option<bool>> {
+        targets.iter().map(|&q| self.measure(q)).collect()
     }
 }
 
 // Reset one qubit to a computational/Pauli basis state.
 pub trait Reset: Clifford {
     /// Reset one qubit to `|0⟩` (stim `R`/`RZ`).
-    fn reset<R: rand::Rng + ?Sized>(&mut self, qubit: usize, rng: &mut R);
+    fn reset(&mut self, qubit: usize);
 
     /// stim `RZ` alias — reset to `|0⟩`.
-    fn reset_z<R: rand::Rng + ?Sized>(&mut self, qubit: usize, rng: &mut R) {
-        self.reset(qubit, rng)
+    fn reset_z(&mut self, qubit: usize) {
+        self.reset(qubit)
     }
 
     /// stim `RX` — reset to `|+⟩`.
-    fn reset_x<R: rand::Rng + ?Sized>(&mut self, qubit: usize, rng: &mut R) {
-        self.reset(qubit, rng);
+    fn reset_x(&mut self, qubit: usize) {
+        self.reset(qubit);
         self.h(qubit);
     }
 
     /// stim `RY` — reset to `|i⟩`.
-    fn reset_y<R: rand::Rng + ?Sized>(&mut self, qubit: usize, rng: &mut R) {
-        self.reset(qubit, rng);
+    fn reset_y(&mut self, qubit: usize) {
+        self.reset(qubit);
         self.h(qubit);
         self.s(qubit);
     }
 
     /// Explicit batched reset to `|0⟩`.
-    fn reset_many<R: rand::Rng + ?Sized>(&mut self, targets: &[usize], rng: &mut R) {
+    fn reset_many(&mut self, targets: &[usize]) {
         for &q in targets {
-            self.reset(q, rng);
+            self.reset(q);
         }
     }
 
     /// Explicit batched `RZ` alias.
-    fn reset_z_many<R: rand::Rng + ?Sized>(&mut self, targets: &[usize], rng: &mut R) {
-        self.reset_many(targets, rng)
+    fn reset_z_many(&mut self, targets: &[usize]) {
+        self.reset_many(targets)
     }
 
     /// Explicit batched `RX`.
-    fn reset_x_many<R: rand::Rng + ?Sized>(&mut self, targets: &[usize], rng: &mut R) {
+    fn reset_x_many(&mut self, targets: &[usize]) {
         for &q in targets {
-            self.reset_x(q, rng);
+            self.reset_x(q);
         }
     }
 
     /// Explicit batched `RY`.
-    fn reset_y_many<R: rand::Rng + ?Sized>(&mut self, targets: &[usize], rng: &mut R) {
+    fn reset_y_many(&mut self, targets: &[usize]) {
         for &q in targets {
-            self.reset_y(q, rng);
+            self.reset_y(q);
         }
     }
 }
