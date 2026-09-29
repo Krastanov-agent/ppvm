@@ -2,6 +2,7 @@ import os
 import tempfile
 import textwrap
 
+import numpy as np
 import pytest
 
 from ppvm import GeneralizedTableau, StimProgram, sample_stim
@@ -254,9 +255,53 @@ def test_generalized_tableau_sample_classmethod_equivalent():
     assert a == b
 
 
+def test_sample_nearby_seeds_do_not_share_shots():
+    # With `seed + i`, seed 8 was seed 7 shifted by one shot.
+    n = 32
+    qubits = " ".join(map(str, range(n)))
+    prog = StimProgram.parse(f"H {qubits}\nM {qubits}")
+
+    def shots(seed):
+        res = sample_stim(prog, n_qubits=n, num_shots=1000, seed=seed)
+        return [tuple(int(v) for v in shot) for shot in res]
+
+    a, b = shots(7), shots(8)
+    assert b[:-1] != a[1:]
+    # Chance collisions of 32-bit shots are rare (~2e-4).
+    assert len(set(a) & set(b)) < 5
+
+
 def test_sample_stim_zero_shots_returns_empty():
     prog = StimProgram.parse("X 0\nM 0")
     assert sample_stim(prog, n_qubits=1, num_shots=0) == []
+
+
+def test_sample_stim_as_numpy_matches_list_output():
+    # Loss + H so all three outcome codes (0/1/2) appear.
+    prog = StimProgram.parse("H 0 1\nI_ERROR[loss](0.3) 0 1\nM 0 1")
+    as_list = sample_stim(prog, n_qubits=2, num_shots=200, seed=3)
+    bits = sample_stim(prog, n_qubits=2, num_shots=200, seed=3, as_numpy=True)
+    assert isinstance(bits, np.ndarray)
+    assert bits.dtype == np.int8
+    assert bits.shape == (200, 2)
+    assert bits.flags.writeable
+    assert bits.tolist() == [[int(r) for r in shot] for shot in as_list]
+    assert set(np.unique(bits)) == {0, 1, 2}
+
+
+def test_sample_classmethod_as_numpy_equivalent():
+    prog = StimProgram.parse("H 0\nM 0")
+    a = GeneralizedTableau.sample(prog, 1, num_shots=10, seed=0, as_numpy=True)
+    b = sample_stim(prog, n_qubits=1, num_shots=10, seed=0, as_numpy=True)
+    np.testing.assert_array_equal(a, b)
+
+
+def test_sample_stim_as_numpy_empty_shapes():
+    prog = StimProgram.parse("X 0\nM 0 0 0")
+    assert sample_stim(prog, n_qubits=1, num_shots=0, as_numpy=True).shape == (0, 3)
+    no_meas = StimProgram.parse("X 0")
+    assert sample_stim(no_meas, n_qubits=1, num_shots=4, as_numpy=True).shape == (4, 0)
+    assert sample_stim(no_meas, n_qubits=1, num_shots=4) == [[]] * 4
 
 
 def test_sample_stim_seeded_is_reproducible_for_large_batches():
