@@ -29,15 +29,6 @@ pub trait Coefficient:
         *self = self.mul_sign(sign)
     }
 
-    /// Add this coefficient to itself. Numeric implementations may use their
-    /// native multiply-by-two operation; exact rings retain the additive default.
-    #[inline(always)]
-    fn doubled(&self) -> Self {
-        let mut result = self.clone();
-        result += self;
-        result
-    }
-
     /// Nonnegative magnitude. Exposes a property of the value for a `Policy` to
     /// threshold; it does not itself decide any cutoff. Replaces the old
     /// `Coefficient::cutoff`.
@@ -50,11 +41,6 @@ impl Coefficient for f64 {
         (sign as f64) * (*self)
     }
 
-    #[inline(always)]
-    fn doubled(&self) -> Self {
-        *self * 2.0
-    }
-
     #[inline]
     fn magnitude(&self) -> f64 {
         self.abs()
@@ -65,11 +51,6 @@ impl Coefficient for num::Complex<f64> {
     #[inline]
     fn mul_sign(&self, sign: i8) -> Self {
         (sign as f64) * (*self)
-    }
-
-    #[inline(always)]
-    fn doubled(&self) -> Self {
-        *self * 2.0
     }
 
     #[inline]
