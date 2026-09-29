@@ -12,6 +12,7 @@
 use crate::PPVMModule;
 use crate::composite::PPVM;
 use crate::measurements::MeasurementResult;
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 /// One shot's full output: the measurement record and the trace-instruction
 /// record. Either may be empty depending on what the program emits.
@@ -27,10 +28,15 @@ pub const PARALLEL_SHOT_THRESHOLD: usize = 128;
 
 /// Per-shot seed derived from the base seed and the shot index, so every shot
 /// gets a distinct RNG stream (a shared seed would make all shots identical).
-/// Depends only on `(base, index)`, so serial and parallel runs are bit-for-bit
-/// identical for a given seed regardless of thread count.
+/// The base is scrambled first so nearby seeds give unrelated shots. Depends
+/// only on `(base, index)`, so serial and parallel runs are identical.
+#[inline]
 fn shot_seed(base: Option<u64>, index: usize) -> Option<u64> {
-    base.map(|b| b.wrapping_add(index as u64))
+    base.map(|b| {
+        SmallRng::seed_from_u64(b)
+            .random::<u64>()
+            .wrapping_add(index as u64)
+    })
 }
 
 /// Run a single shot on a fresh machine and return both records.
@@ -175,6 +181,19 @@ mod tests {
         assert!(
             records.iter().any(|r| r != first),
             "expected varied outcomes across shots, got {records:?}"
+        );
+    }
+
+    #[test]
+    fn nearby_seeds_do_not_share_shots() {
+        // With `seed + i`, seed 8 was seed 7 shifted by one shot.
+        let m = module(RANDOM);
+        let a = run_shots_serial(&m, 128, Some(7)).unwrap();
+        let b = run_shots_serial(&m, 128, Some(8)).unwrap();
+        assert_ne!(
+            a[1..],
+            b[..127],
+            "seed 8 reproduced seed 7's shots shifted by one"
         );
     }
 

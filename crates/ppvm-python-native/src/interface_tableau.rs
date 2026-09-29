@@ -6,6 +6,7 @@ use paste::paste;
 use ppvm_tableau::prelude::*;
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyComplex, PyDict};
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 pub(crate) fn measurement_to_u8(m: Option<bool>) -> u8 {
     match m {
@@ -318,10 +319,9 @@ macro_rules! create_interface {
             ///
             /// Shots run in parallel on rayon's global thread pool (GIL
             /// released), falling back to serial for small batches. Shot `i`
-            /// is seeded with `seed.wrapping_add(i)` when `seed` is given
-            /// (wrapping mod 2⁶⁴), so results are reproducible and
-            /// independent of the thread count; set the `RAYON_NUM_THREADS`
-            /// environment variable to control the pool size.
+            /// is seeded with a scrambled `seed` plus `i`, so results are
+            /// reproducible, thread-count independent, and nearby seeds give
+            /// unrelated shots. Set `RAYON_NUM_THREADS` to control the pool size.
             ///
             /// Returns the outcome codes (0/1/2 = zero/one/lost) as one flat,
             /// shot-major `bytearray` plus its `(num_shots, n_measurements)` shape.
@@ -346,7 +346,9 @@ macro_rules! create_interface {
                             Some(s) => GeneralizedTableau::<$type, $indexType>::new_with_seed(
                                 n_qubits,
                                 min_abs_coeff,
-                                s.wrapping_add(i as u64),
+                                SmallRng::seed_from_u64(s)
+                                    .random::<u64>()
+                                    .wrapping_add(i as u64),
                             ),
                             None => GeneralizedTableau::<$type, $indexType>::new(
                                 n_qubits,

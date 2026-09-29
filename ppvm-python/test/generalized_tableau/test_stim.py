@@ -255,6 +255,22 @@ def test_generalized_tableau_sample_classmethod_equivalent():
     assert a == b
 
 
+def test_sample_nearby_seeds_do_not_share_shots():
+    # With `seed + i`, seed 8 was seed 7 shifted by one shot.
+    n = 32
+    qubits = " ".join(map(str, range(n)))
+    prog = StimProgram.parse(f"H {qubits}\nM {qubits}")
+
+    def shots(seed):
+        res = sample_stim(prog, n_qubits=n, num_shots=1000, seed=seed)
+        return [tuple(int(v) for v in shot) for shot in res]
+
+    a, b = shots(7), shots(8)
+    assert b[:-1] != a[1:]
+    # Chance collisions of 32-bit shots are rare (~2e-4).
+    assert len(set(a) & set(b)) < 5
+
+
 def test_sample_stim_zero_shots_returns_empty():
     prog = StimProgram.parse("X 0\nM 0")
     assert sample_stim(prog, n_qubits=1, num_shots=0) == []
