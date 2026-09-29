@@ -88,7 +88,11 @@ impl TranslationGroup {
                 *c = 0;
             }
         }
-        CharacterTable { numerators, values }
+        CharacterTable {
+            orders: self.orders.clone(),
+            numerators,
+            values,
+        }
     }
 
     /// Everything the phase-aware routines need about `w`'s orbit in
@@ -148,8 +152,7 @@ impl TranslationGroup {
         S: BuildHasher + Clone + Default + HashFinalize,
     {
         assert_eq!(
-            table.len(),
-            self.order(),
+            table.orders, self.orders,
             "character table does not belong to this group"
         );
         let (rep, idx, stabilizer) =
@@ -163,6 +166,9 @@ impl TranslationGroup {
 /// [`TranslationGroup::character_table`].
 #[derive(Debug, Clone)]
 pub struct CharacterTable {
+    /// Generator orders of the originating group; element indices (and so
+    /// the table) are only meaningful for a group with the same orders.
+    orders: Vec<u32>,
     /// Exact phase numerators (see `character_numerator`); `0` ⇔ `χ = 1`.
     numerators: Vec<usize>,
     values: Vec<Complex<f64>>,

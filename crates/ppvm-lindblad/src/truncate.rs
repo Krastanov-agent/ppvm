@@ -36,9 +36,8 @@ pub(crate) fn cap_map_to_room<const C: usize, T: Coeff>(
         return;
     }
     let mut mags: Vec<f64> = merged.values().map(|v| v.mag()).collect();
-    let k = room.min(mags.len() - 1);
-    let cutoff = nth_largest(&mut mags, k);
-    merged.retain(|_, v| v.mag() >= cutoff);
+    let mut keep = top_k_keeper(&mut mags, room);
+    merged.retain(|_, v| keep(v.mag()));
 }
 
 /// Compact `basis` / `coeffs` in place: drop entries whose coefficient
@@ -82,15 +81,12 @@ pub(crate) fn cap_basis<const C: usize, T: Coeff>(
         .filter(|(w, _)| !protected_set.contains(w))
         .map(|(_, c)| c.mag())
         .collect();
-    let cutoff = if slots == 0 {
-        f64::INFINITY
-    } else if slots >= mags.len() {
+    if slots >= mags.len() {
         return;
-    } else {
-        nth_largest(&mut mags, slots - 1)
-    };
+    }
+    let mut keep = top_k_keeper(&mut mags, slots);
     retain_in_place(basis, coeffs, |w, c| {
-        protected_set.contains(w) || c.mag() >= cutoff
+        protected_set.contains(w) || keep(c.mag())
     });
 }
 
@@ -139,6 +135,27 @@ fn retain_in_place<const C: usize, T>(
     coeffs.truncate(write);
 }
 
+/// Predicate that, fed every magnitude of `mags` once, accepts exactly the
+/// `k` largest (`k < mags.len()`): all above the cutoff, then ties in visit
+/// order. Reorders `mags`.
+fn top_k_keeper(mags: &mut [f64], k: usize) -> impl FnMut(f64) -> bool {
+    let (cutoff, mut ties_left) = if k == 0 {
+        (f64::INFINITY, 0)
+    } else {
+        let cutoff = nth_largest(mags, k - 1);
+        let n_above = mags.iter().filter(|&&m| m > cutoff).count();
+        (cutoff, k.saturating_sub(n_above))
+    };
+    move |m| {
+        if m > cutoff {
+            return true;
+        }
+        let tie = m == cutoff && ties_left > 0;
+        ties_left -= tie as usize;
+        tie
+    }
+}
+
 /// The `k`-th largest element of `mags` (0-indexed), via a partial sort.
 /// Reorders `mags`. Panics if `k >= mags.len()`.
 fn nth_largest(mags: &mut [f64], k: usize) -> f64 {
@@ -153,4 +170,62 @@ fn desc_by_mag<T: Coeff>(a: T, b: T) -> std::cmp::Ordering {
     b.mag()
         .partial_cmp(&a.mag())
         .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::word::word_from_codes;
+
+    /// `n` distinct 4-qubit words.
+    fn words(n: usize) -> Vec<Word> {
+        (0..n)
+            .map(|i| {
+                let codes: Vec<u8> = (0..4).map(|q| ((i >> (2 * q)) & 3) as u8).collect();
+                word_from_codes(&codes).unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn cap_basis_is_a_hard_cap_under_ties() {
+        let mut basis = words(10);
+        // One large entry, nine tied zeros (fresh leakage admissions).
+        let mut coeffs = vec![0.0; 10];
+        coeffs[3] = 1.0;
+        cap_basis(&mut basis, &mut coeffs, 4, &[]);
+        assert_eq!(basis.len(), 4);
+        assert_eq!(coeffs, vec![0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn cap_basis_keeps_protected_beyond_slots() {
+        let all = words(6);
+        let mut basis = all.clone();
+        let mut coeffs = vec![0.5; 6];
+        let protected = [all[5]];
+        cap_basis(&mut basis, &mut coeffs, 3, &protected);
+        assert_eq!(basis, vec![all[0], all[1], all[5]]);
+    }
+
+    #[test]
+    fn cap_map_to_room_keeps_exactly_room_under_ties() {
+        let mut merged: FxHashMap<Word, f64> = words(10).into_iter().map(|w| (w, 0.25)).collect();
+        cap_map_to_room(&mut merged, 3);
+        assert_eq!(merged.len(), 3);
+    }
+
+    #[test]
+    fn cap_map_to_room_keeps_the_largest() {
+        let ws = words(5);
+        let mut merged: FxHashMap<Word, f64> = ws
+            .iter()
+            .zip([1.0, -5.0, 3.0, 0.5, -4.0])
+            .map(|(w, c)| (*w, c))
+            .collect();
+        cap_map_to_room(&mut merged, 2);
+        let mut kept: Vec<f64> = merged.values().copied().collect();
+        kept.sort_by(f64::total_cmp);
+        assert_eq!(kept, vec![-5.0, -4.0]);
+    }
 }

@@ -228,6 +228,13 @@ impl LindbladSpec {
     ) -> PyResult<PyPauliMap<'py>> {
         with_spec!(&self.inner, inner, C => {
             let p_slice = p.as_slice()?;
+            if p_slice.len() != inner.n_qubits() {
+                return Err(PyValueError::new_err(format!(
+                    "p has {} entries but spec.n_qubits = {}",
+                    p_slice.len(),
+                    inner.n_qubits()
+                )));
+            }
             let p_word = word_from_codes::<C>(p_slice).map_err(map_err)?;
             let pairs = inner.action(&p_word);
             pack_pauli_map(py, pairs, inner.n_qubits())

@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import _core
+from ._codes import as_pauli_codes
 from ._core import LindbladSpec as _LindbladSpec
 
 _PAULI_CODE = {"I": 0, "X": 1, "Z": 2, "Y": 3}
@@ -267,7 +268,7 @@ class Lindbladian:
         Returns ``(out_basis, out_coeffs)``: a ``(M, n_qubits)`` uint8
         array and a length-``M`` float64 array.
         """
-        return self._spec.action(np.ascontiguousarray(p, dtype=np.uint8))
+        return self._spec.action(as_pauli_codes(p))
 
     def leakage_arr(
         self,
@@ -288,9 +289,9 @@ class Lindbladian:
         if protected_arr is None:
             protected_arr = np.zeros((0, n), dtype=np.uint8)
         return self._spec.leakage(
-            np.ascontiguousarray(basis_arr, dtype=np.uint8),
+            as_pauli_codes(basis_arr),
             np.ascontiguousarray(coeffs, dtype=np.float64),
-            np.ascontiguousarray(protected_arr, dtype=np.uint8),
+            as_pauli_codes(protected_arr),
         )
 
     def pc_step_arr(
@@ -345,12 +346,12 @@ class Lindbladian:
         if protected_arr is None:
             protected_arr = np.zeros((0, n), dtype=np.uint8)
         return self._spec.pc_step(
-            np.ascontiguousarray(basis_arr, dtype=np.uint8),
+            as_pauli_codes(basis_arr),
             np.ascontiguousarray(coeffs, dtype=np.float64),
             float(dt),
             int(max_basis),
             float(drop_tol),
-            np.ascontiguousarray(protected_arr, dtype=np.uint8),
+            as_pauli_codes(protected_arr),
             None if num_threads is None else int(num_threads),
             None if admit_basis is None else int(admit_basis),
             None if tau_add is None else float(tau_add),
@@ -412,14 +413,14 @@ class Lindbladian:
         if protected_arr is None:
             protected_arr = np.zeros((0, n), dtype=np.uint8)
         return self._spec.pc_step_orbit_rep(
-            np.ascontiguousarray(basis_arr, dtype=np.uint8),
+            as_pauli_codes(basis_arr),
             np.ascontiguousarray(coeffs, dtype=np.complex128),
             float(dt),
             int(max_basis),
             group,
             np.ascontiguousarray(momentum, dtype=np.int32),
             float(drop_tol),
-            np.ascontiguousarray(protected_arr, dtype=np.uint8),
+            as_pauli_codes(protected_arr),
             bool(canonicalize_first),
             None if admit_basis is None else int(admit_basis),
             None if tau_add is None else float(tau_add),
@@ -468,7 +469,7 @@ class Lindbladian:
         ...     (vals, (rows, cols)), shape=(len(basis_arr), len(basis_arr))
         ... ).tocsc()
         """
-        return self._spec.generator(np.ascontiguousarray(basis_arr, dtype=np.uint8))
+        return self._spec.generator(as_pauli_codes(basis_arr))
 
     # ── String-keyed convenience API (slower; for tests / display) ──
 

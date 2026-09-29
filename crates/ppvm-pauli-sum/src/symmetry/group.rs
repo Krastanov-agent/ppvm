@@ -12,13 +12,12 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
     a
 }
 
-fn checked_lcm(a: usize, b: usize, context: &str) -> usize {
-    a.checked_div(gcd(a, b))
-        .and_then(|q| q.checked_mul(b))
-        .unwrap_or_else(|| panic!("{context} overflow"))
+fn checked_lcm(a: usize, b: usize) -> Option<usize> {
+    a.checked_div(gcd(a, b)).and_then(|q| q.checked_mul(b))
 }
 
-fn permutation_order(perm: &[u32], generator: usize) -> u32 {
+/// Exact cyclic order of `perm`, or `None` if it does not fit in `u32`.
+fn permutation_order(perm: &[u32], generator: usize) -> Option<u32> {
     let mut seen = vec![false; perm.len()];
     let mut order = 1usize;
     for start in 0..perm.len() {
@@ -36,22 +35,19 @@ fn permutation_order(perm: &[u32], generator: usize) -> u32 {
                 break;
             }
         }
-        order = checked_lcm(order, length, "permutation order");
+        order = checked_lcm(order, length)?;
     }
-    u32::try_from(order).unwrap_or_else(|_| {
-        panic!("generator {generator} exact permutation order does not fit in u32")
-    })
+    u32::try_from(order).ok()
 }
 
 fn permutations_commute(left: &[u32], right: &[u32]) -> bool {
     (0..left.len()).all(|q| left[right[q] as usize] == right[left[q] as usize])
 }
 
-pub(super) fn checked_group_order(orders: &[u32]) -> usize {
-    orders.iter().enumerate().fold(1usize, |acc, (g, &value)| {
-        acc.checked_mul(value as usize)
-            .unwrap_or_else(|| panic!("group order overflows usize at generator {g}"))
-    })
+pub(super) fn checked_group_order(orders: &[u32]) -> Option<usize> {
+    orders
+        .iter()
+        .try_fold(1usize, |acc, &value| acc.checked_mul(value as usize))
 }
 
 pub(super) fn validate_site_count(n: usize, context: &str) {
@@ -66,9 +62,7 @@ pub(super) fn validate_site_count(n: usize, context: &str) {
 ///
 /// Every variant is caller-supplied-input error, and its [`Display`]
 /// text is exactly what [`TranslationGroup::from_generators`] panics
-/// with. Arithmetic overflow in the group order or character phase
-/// modulus is NOT covered — that needs generator orders in the billions
-/// and still panics.
+/// with.
 ///
 /// [`Display`]: std::fmt::Display
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +93,10 @@ pub enum GroupError {
     },
     /// Two generators do not commute, so they generate no abelian group.
     NonCommuting { left: usize, right: usize },
+    /// A generator's exact cyclic order does not fit in `u32`.
+    PermutationOrderOverflow { generator: usize },
+    /// The group order `Π orders[g]` does not fit in `usize`.
+    GroupOrderOverflow,
 }
 
 impl std::fmt::Display for GroupError {
@@ -142,6 +140,11 @@ impl std::fmt::Display for GroupError {
             Self::NonCommuting { left, right } => {
                 write!(f, "generators {left} and {right} do not commute")
             }
+            Self::PermutationOrderOverflow { generator } => write!(
+                f,
+                "generator {generator} exact permutation order does not fit in u32"
+            ),
+            Self::GroupOrderOverflow => write!(f, "group order overflows usize"),
         }
     }
 }
@@ -438,7 +441,8 @@ impl TranslationGroup {
             if declared == 0 {
                 return Err(GroupError::ZeroOrder { generator });
             }
-            let exact = permutation_order(&perms[generator], generator);
+            let exact = permutation_order(&perms[generator], generator)
+                .ok_or(GroupError::PermutationOrderOverflow { generator })?;
             if declared != exact {
                 return Err(GroupError::OrderMismatch {
                     generator,
@@ -454,10 +458,12 @@ impl TranslationGroup {
                 }
             }
         }
-        let order = checked_group_order(&orders);
-        let phase_modulus = orders.iter().fold(1usize, |acc, &value| {
-            checked_lcm(acc, value as usize, "character phase modulus")
-        });
+        let order = checked_group_order(&orders).ok_or(GroupError::GroupOrderOverflow)?;
+        // lcm divides the product, so this cannot overflow once `order` fits.
+        let phase_modulus = orders
+            .iter()
+            .try_fold(1usize, |acc, &value| checked_lcm(acc, value as usize))
+            .ok_or(GroupError::GroupOrderOverflow)?;
         let block_cyclic = detect_block_cyclic(n_qubits, &perms, &orders);
         let rotations = perms
             .iter()

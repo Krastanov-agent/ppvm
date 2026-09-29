@@ -78,6 +78,12 @@ def test_from_generators_validates(perms, orders, message):
         TranslationGroup.from_generators(4, perms, orders)
 
 
+def test_from_generators_overflow_is_value_error():
+    """64 commuting copies of one swap: group order 2^64 overflows."""
+    with pytest.raises(ValueError, match="group order overflows"):
+        TranslationGroup.from_generators(2, [[1, 0]] * 64, [2] * 64)
+
+
 @pytest.mark.parametrize(
     "ctor, args, message",
     [

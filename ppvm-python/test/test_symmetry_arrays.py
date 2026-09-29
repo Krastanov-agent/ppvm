@@ -81,6 +81,22 @@ def test_wrappers_coerce_argument_dtypes():
     assert check_momentum_sector_arr(py_basis, [1 + 0j] * n, g, [0]) is None
 
 
+@pytest.mark.parametrize(
+    "bad, message",
+    [
+        # 256 would wrap to 0 (= I) and 259 to 3 (= Y) on a bare uint8 cast.
+        (np.array([[256, 0, 0, 0]]), "got 256"),
+        (np.array([[259, 0, 0, 0]]), "got 259"),
+        (np.array([[-1, 0, 0, 0]]), "got -1"),
+        (np.array([[1.5, 0, 0, 0]]), "must be integers"),
+    ],
+)
+def test_wrappers_reject_codes_the_uint8_cast_would_alter(bad, message):
+    g = TranslationGroup.chain_1d(4)
+    with pytest.raises(ValueError, match=message):
+        canonicalize_basis_arr(bad, [1.0], g)
+
+
 # ── canonicalize_basis_arr (real, k=0) ───────────────────────────────────────
 def test_canonicalize_basis_arr_sums_collisions():
     n = 4

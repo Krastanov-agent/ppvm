@@ -824,7 +824,27 @@ fn rejects_group_order_overflow() {
     } else {
         vec![u32::MAX, u32::MAX]
     };
-    assert!(std::panic::catch_unwind(|| { super::group::checked_group_order(&orders) }).is_err());
+    assert_eq!(super::group::checked_group_order(&orders), None);
+}
+
+#[test]
+fn try_from_generators_reports_overflow() {
+    use super::GroupError;
+    // 64 copies of one swap: a valid direct product of order 2^64.
+    let err = TranslationGroup::try_from_generators(2, vec![vec![1, 0]; 64], vec![2; 64])
+        .expect_err("group order must overflow");
+    assert_eq!(err, GroupError::GroupOrderOverflow);
+
+    // Disjoint prime cycles 2..29 on 129 qubits: order 6469693230 > u32::MAX.
+    let mut perm = Vec::new();
+    for len in [2u32, 3, 5, 7, 11, 13, 17, 19, 23, 29] {
+        let start = perm.len() as u32;
+        perm.extend((0..len).map(|j| start + (j + 1) % len));
+    }
+    let n = perm.len();
+    let err = TranslationGroup::try_from_generators(n, vec![perm], vec![1])
+        .expect_err("permutation order must overflow u32");
+    assert_eq!(err, GroupError::PermutationOrderOverflow { generator: 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,4 +1119,13 @@ fn orbit_yields_hashed_words() {
         fresh.rehash();
         assert_eq!(fxhash::hash64(&member), fxhash::hash64(&fresh));
     }
+}
+
+#[test]
+#[should_panic(expected = "character table does not belong to this group")]
+fn character_table_rejects_a_group_of_equal_order() {
+    // Both groups have order 4, but their element indices mean different things.
+    let table = TranslationGroup::chain_1d(4).character_table(&[1]);
+    let torus = TranslationGroup::torus_2d(2, 2);
+    torus.canonicalize_in_sector_indexed(&word("XIII"), &table);
 }

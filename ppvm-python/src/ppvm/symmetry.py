@@ -30,6 +30,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import _core
+from ._codes import as_pauli_codes
 from ._core import TranslationGroup as TranslationGroup
 
 __all__ = [
@@ -45,7 +46,7 @@ def _momentum(momentum: npt.ArrayLike) -> np.ndarray:
 
 
 def _basis(basis_arr: npt.ArrayLike) -> np.ndarray:
-    return np.ascontiguousarray(basis_arr, dtype=np.uint8)
+    return as_pauli_codes(basis_arr)
 
 
 def canonicalize_basis_arr(

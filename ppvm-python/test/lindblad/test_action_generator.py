@@ -106,3 +106,23 @@ def test_protected_strings_suppressed():
     protected_key = next(iter(leak))
     leak2 = L_op.leakage(basis, coeffs, protected=[protected_key])
     assert protected_key not in leak2
+
+
+@pytest.mark.parametrize("width", [3, 5])
+def test_action_arr_rejects_wrong_width(width):
+    L = 4
+    h_terms, jump_terms = xy_dephasing(L, alpha=1.0, gamma=0.3)
+    L_op = Lindbladian(L, h_terms, jump_terms)
+    with pytest.raises(ValueError, match=f"p has {width} entries but spec.n_qubits = 4"):
+        L_op.action_arr(np.zeros(width, dtype=np.uint8))
+
+
+def test_arr_entry_points_reject_out_of_range_codes():
+    L = 4
+    h_terms, jump_terms = xy_dephasing(L, alpha=1.0, gamma=0.3)
+    L_op = Lindbladian(L, h_terms, jump_terms)
+    # A bare uint8 cast would turn 258 into 2 (= Z) and accept it.
+    with pytest.raises(ValueError, match="got 258"):
+        L_op.action_arr(np.array([258, 0, 0, 0]))
+    with pytest.raises(ValueError, match="got 258"):
+        L_op.leakage_arr(np.array([[258, 0, 0, 0]]), np.ones(1))
