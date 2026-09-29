@@ -7,28 +7,6 @@
 
 use crate::arithmetic::Coefficient;
 
-/// Optional coefficient capability for single-qubit Pauli-channel factors.
-/// Implementers can use the generic default or specialize the noise calculation.
-pub trait PauliErrorFactors: Coefficient + num::One {
-    /// Transfer eigenvalues `(λ_X, λ_Z, λ_Y)` for Pauli probabilities
-    /// `(p_X, p_Y, p_Z)`.
-    #[inline(always)]
-    fn pauli_error_factors(probabilities: [Self; 3]) -> [Self; 3] {
-        let [px, py, pz] = probabilities;
-        [
-            Self::one() - py.doubled() - pz.doubled(),
-            Self::one() - px.doubled() - py.doubled(),
-            Self::one() - px.doubled() - pz.doubled(),
-        ]
-    }
-}
-
-// Both numeric types already specialize `Coefficient::doubled` to `*self * 2.0`,
-// so the generic default inlines to exactly the hand-written expression.
-impl PauliErrorFactors for f64 {}
-
-impl PauliErrorFactors for num::Complex<f64> {}
-
 /// A unital single-qubit Pauli error channel `P ↦ λ_P·P`.
 pub trait PauliError<C: Coefficient> {
     /// Apply a single-qubit Pauli channel with `X`, `Y`, `Z` probabilities.
@@ -199,27 +177,4 @@ pub trait AsymmetricLossChannel<C: Coefficient> {
         p1: C,
         rng: &mut R,
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PauliErrorFactors;
-    use num::Complex;
-
-    #[test]
-    fn deterministic_pauli_errors_have_expected_conjugation_signs() {
-        // Inputs are X/Y/Z probabilities; outputs are X/Z/Y eigenvalues.
-        for (probabilities, expected) in [
-            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
-            ([1.0, 0.0, 0.0], [1.0, -1.0, -1.0]),
-            ([0.0, 1.0, 0.0], [-1.0, -1.0, 1.0]),
-            ([0.0, 0.0, 1.0], [-1.0, 1.0, -1.0]),
-        ] {
-            assert_eq!(f64::pauli_error_factors(probabilities), expected);
-            assert_eq!(
-                Complex::<f64>::pauli_error_factors(probabilities.map(|p| Complex::new(p, 0.0)),),
-                expected.map(|factor| Complex::new(factor, 0.0)),
-            );
-        }
-    }
 }

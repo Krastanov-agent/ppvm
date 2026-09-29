@@ -7,6 +7,7 @@ pub trait Coefficient:
     PartialEq
     + Clone
     + num::Zero
+    + num::One
     + Neg<Output = Self>
     + Add<Self, Output = Self>
     + Sub<Self, Output = Self>

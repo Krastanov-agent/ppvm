@@ -10,7 +10,7 @@ mod rot;
 
 pub use channel::{
     AmplitudeDamping, AsymmetricLossChannel, CorrelatedLossChannel, Depolarizing, Depolarizing2,
-    LossChannel, PauliError, PauliErrorFactors, ResetLossChannel, TwoQubitPauliError,
+    LossChannel, PauliError, ResetLossChannel, TwoQubitPauliError,
 };
 pub use clifford::{Clifford, CliffordBatch};
 pub use measure::{Measure, Projection, Reset};
