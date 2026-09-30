@@ -7,6 +7,10 @@ use crate::rows::{eliminate, has_x, has_z, site, swap};
 
 /// Reduce selected qubit columns, alternating X and Z elimination.
 ///
+/// > **Warning:** Requires a valid full-rank frame: `n` destabilizers followed by
+/// > their `n` paired stabilizers on `n` qubits (`2n × n` Pauli entries).
+/// > Stabilizer-only and rank-deficient tableaux are unsupported.
+///
 /// This is QuantumClifford's `canonicalize_rref!` form (Audenaert and Plenio,
 /// 2005). Pivots go at the bottom. Returns the number of leading stabilizer
 /// rows that are identity on every selected qubit. Those rows generate the

@@ -22,6 +22,10 @@ pub struct GottesmanForm {
 
 /// Put the stabilizers in Gottesman's standard form, reordering qubits.
 ///
+/// > **Warning:** Requires a valid full-rank frame: `n` destabilizers followed by
+/// > their `n` paired stabilizers on `n` qubits (`2n × n` Pauli entries).
+/// > Stabilizer-only and rank-deficient tableaux are unsupported.
+///
 /// Like QuantumClifford's `canonicalize_gott!`, first reduce X and move its
 /// pivot columns to the left. Then reduce Z on the remaining columns and
 /// move those pivots next. The pivot blocks are identity matrices. This form
@@ -30,7 +34,6 @@ pub struct GottesmanForm {
 ///
 /// Both halves of the frame follow the qubit permutations. These are physical
 /// qubit reorderings, so use the returned permutations to track qubit labels.
-/// This API accepts a pure-state frame, with one stabilizer per qubit.
 ///
 /// ```
 /// use ppvm_tableau_2::Tableau;

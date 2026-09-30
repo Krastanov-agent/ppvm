@@ -7,6 +7,10 @@ use crate::rows::{forward_pass, has_x, has_z};
 
 /// Reduce all X columns, then all Z columns, in place.
 ///
+/// > **Warning:** Requires a valid full-rank frame: `n` destabilizers followed by
+/// > their `n` paired stabilizers on `n` qubits (`2n × n` Pauli entries).
+/// > Stabilizer-only and rank-deficient tableaux are unsupported.
+///
 /// This is QuantumClifford's `canonicalize!` form, used there for stabilizer
 /// inner products (Garcia et al., 2012). Returns `(x_rank, total_rank)`, the
 /// numbers of pivots after the X pass and after both passes. For a valid

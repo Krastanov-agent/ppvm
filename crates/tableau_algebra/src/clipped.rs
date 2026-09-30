@@ -8,6 +8,10 @@ use crate::rows::{multiply, site, swap};
 
 /// Put a pure stabilizer state in the clipped gauge, in place.
 ///
+/// > **Warning:** Requires a valid full-rank frame: `n` destabilizers followed by
+/// > their `n` paired stabilizers on `n` qubits (`2n × n` Pauli entries).
+/// > Stabilizer-only and rank-deficient tableaux are unsupported.
+///
 /// This is QuantumClifford's `canonicalize_clip!` form (Nahum et al., 2017;
 /// Li et al., 2019, Appendix A). A left-to-right pass fixes the left endpoints;
 /// a right-to-left pass shortens the rows while preserving those endpoints.
@@ -16,7 +20,7 @@ use crate::rows::{multiply, site, swap};
 /// different nonidentity Paulis there.
 ///
 /// Endpoint pairs describe the state's entanglement across cuts in the qubit
-/// ordering. The input must be a valid full-rank pure-state frame.
+/// ordering.
 ///
 /// ```
 /// use ppvm_tableau_2::Tableau;
