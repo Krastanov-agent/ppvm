@@ -15,10 +15,12 @@
 //! The original license is included in `LICENSE-QuantumClifford`.
 
 mod canonical;
+mod clipped;
 mod gottesman;
 mod rows;
 mod rref;
 
 pub use canonical::canonicalize;
+pub use clipped::canonicalize_clip;
 pub use gottesman::{GottesmanForm, canonicalize_gott};
 pub use rref::canonicalize_rref;
