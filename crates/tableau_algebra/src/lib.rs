@@ -16,5 +16,7 @@
 
 mod canonical;
 mod rows;
+mod rref;
 
 pub use canonical::canonicalize;
+pub use rref::canonicalize_rref;
