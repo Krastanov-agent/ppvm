@@ -13,3 +13,8 @@
 //! `src/canonicalization.jl`, `src/entanglement.jl`, and
 //! `docs/src/canonicalization.md` (MIT, copyright 2023 Stefan Krastanov).
 //! The original license is included in `LICENSE-QuantumClifford`.
+
+mod canonical;
+mod rows;
+
+pub use canonical::canonicalize;
