@@ -80,6 +80,6 @@ def test_ccz_skips_inactive_operands(inactive, channel):
 )
 @pytest.mark.parametrize("targets", [[0, 1], [0, 1, 1], [0, 1, 3]])
 def test_ccz_rejects_invalid_targets(backend, targets):
-    tab = backend(3)
+    tab = backend.new(3, "XII") if issubclass(backend, PauliSum) else backend(3)
     with pytest.raises(ValueError):
         tab.ccz(targets)
